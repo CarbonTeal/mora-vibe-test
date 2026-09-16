@@ -1,60 +1,83 @@
 import './style.css'
-import heroImg from './assets/hero.png'
-import typescriptLogo from './assets/typescript.svg'
-import viteLogo from './assets/vite.svg'
-import { setupCounter } from './counter.ts'
+import { Game } from './game/Game.ts'
+import { DebugPanel } from './debug/DebugPanel.ts'
 
-document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
-<section id="center">
-  <div class="hero">
-    <img src="${heroImg}" class="base" width="170" height="179">
-    <img src="${typescriptLogo}" class="framework" alt="TypeScript logo"/>
-    <img src="${viteLogo}" class="vite" alt="Vite logo" />
-  </div>
-  <div>
-    <h1>Get started</h1>
-    <p>Edit <code>src/main.ts</code> and save to test <code>HMR</code></p>
-  </div>
-  <button id="counter" type="button" class="counter"></button>
-</section>
+const app = document.querySelector<HTMLDivElement>('#app')
 
-<div class="ticks"></div>
+if (!app) {
+  throw new Error('Missing #app root element')
+}
 
-<section id="next-steps">
-  <div id="docs">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg>
-    <h2>Documentation</h2>
-    <p>Your questions, answered</p>
-    <ul>
-      <li>
-        <a href="https://vite.dev/" target="_blank">
-          <img class="logo" src="${viteLogo}" alt="" />
-          Explore Vite
-        </a>
-      </li>
-      <li>
-        <a href="https://www.typescriptlang.org" target="_blank">
-          <img class="button-icon" src="${typescriptLogo}" alt="">
-          Learn more
-        </a>
-      </li>
-    </ul>
-  </div>
-  <div id="social">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg>
-    <h2>Connect with us</h2>
-    <p>Join the Vite community</p>
-    <ul>
-      <li><a href="https://github.com/vitejs/vite" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#github-icon"></use></svg>GitHub</a></li>
-      <li><a href="https://chat.vite.dev/" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg>Discord</a></li>
-      <li><a href="https://x.com/vite_js" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg>X.com</a></li>
-      <li><a href="https://bsky.app/profile/vite.dev" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg>Bluesky</a></li>
-    </ul>
-  </div>
-</section>
+const debugMarkup = import.meta.env.DEV ? '<aside id="debug-panel" class="debug-panel"></aside>' : ''
 
-<div class="ticks"></div>
-<section id="spacer"></section>
+app.innerHTML = `
+  <main class="game-shell">
+    <canvas id="game-canvas" aria-label="3D roguelike game"></canvas>
+    <section class="hud" aria-live="polite">
+      <div class="hud__title">Mora Prototype</div>
+      <div class="hud__stats">
+        <span id="hud-health">HP 100 / 100</span>
+        <span id="hud-level">Level 1</span>
+        <span id="hud-xp">XP 0 / 60</span>
+        <span id="hud-enemies">Enemies 0</span>
+        <span id="hud-round">Round 1</span>
+        <span id="hud-state">Combat</span>
+        <span id="hud-time">60.0s</span>
+        <span id="hud-money">Money 0</span>
+      </div>
+      <div id="hud-skills" class="hud__skills">Skills: Basic Projectile</div>
+      <div class="hud__hint">WASD 移动 · 自动瞄准与攻击</div>
+    </section>
+    <section id="fusion-feedback" class="fusion-feedback" aria-live="assertive">
+      <strong id="fusion-glyph"></strong>
+      <span id="fusion-name"></span>
+    </section>
+    <section id="shop-panel" class="shop-panel" hidden></section>
+    <section id="game-over" class="game-over" hidden>
+      <strong>Run Over</strong>
+      <span>刷新页面重新开始</span>
+    </section>
+    ${debugMarkup}
+  </main>
 `
 
-setupCounter(document.querySelector<HTMLButtonElement>('#counter')!)
+const canvas = document.querySelector<HTMLCanvasElement>('#game-canvas')
+
+if (!canvas) {
+  throw new Error('Missing game canvas')
+}
+
+const game = new Game(canvas, {
+  hud: {
+    health: document.querySelector<HTMLElement>('#hud-health')!,
+    level: document.querySelector<HTMLElement>('#hud-level')!,
+    xp: document.querySelector<HTMLElement>('#hud-xp')!,
+    enemies: document.querySelector<HTMLElement>('#hud-enemies')!,
+    round: document.querySelector<HTMLElement>('#hud-round')!,
+    state: document.querySelector<HTMLElement>('#hud-state')!,
+    time: document.querySelector<HTMLElement>('#hud-time')!,
+    money: document.querySelector<HTMLElement>('#hud-money')!,
+    skills: document.querySelector<HTMLElement>('#hud-skills')!,
+    gameOver: document.querySelector<HTMLElement>('#game-over')!,
+  },
+  fusion: {
+    root: document.querySelector<HTMLElement>('#fusion-feedback')!,
+    glyph: document.querySelector<HTMLElement>('#fusion-glyph')!,
+    name: document.querySelector<HTMLElement>('#fusion-name')!,
+  },
+  shopRoot: document.querySelector<HTMLElement>('#shop-panel')!,
+})
+
+const debugRoot = document.querySelector<HTMLElement>('#debug-panel')
+const debugPanel = import.meta.env.DEV && debugRoot
+  ? new DebugPanel(debugRoot, game.getDebugActions())
+  : undefined
+
+game.start()
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    debugPanel?.dispose()
+    game.dispose()
+  })
+}
