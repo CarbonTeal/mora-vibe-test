@@ -1,5 +1,7 @@
 import { ElementType, type ElementType as ElementValue } from '../elements/ElementType.ts'
 import type { DebugActions } from './DebugTypes.ts'
+import { EliteModifier, EnemyArchetype } from '../entities/EnemyArchetype.ts'
+import { WeaponType } from '../combat/WeaponDefinition.ts'
 
 export class DebugPanel {
   private readonly root: HTMLElement
@@ -9,17 +11,33 @@ export class DebugPanel {
   constructor(root: HTMLElement, actions: DebugActions) {
     this.root = root
     this.actions = actions
+    const skillOptions = actions.getSkillOptions()
+    const weaponUpgrades = actions.getWeaponUpgradeOptions()
+    const synergyUpgrades = actions.getSynergyUpgradeOptions()
     this.root.innerHTML = `
       <div class="debug-panel__header">DEBUG</div>
       <pre class="debug-panel__state" data-debug-state></pre>
       <div class="debug-panel__group">
+        <strong>FORCE EVOLUTION (6 T1 + 45 T2)</strong>
+        <select data-skill-select>
+          ${skillOptions.map((skill) => `<option value="${skill.id}">T${skill.tier} · ${skill.name}</option>`).join('')}
+        </select>
+        <div class="debug-panel__group--grid">
+          <button type="button" data-action="previous-skill">Previous Skill</button>
+          <button type="button" data-action="next-skill">Next Skill</button>
+        </div>
+      </div>
+      <div class="debug-panel__group">
         ${Object.values(ElementType).map((element) => `
-          <button type="button" data-element="${element}">Add ${element}</button>
+          <button type="button" data-spawn-element="${element}">Spawn ${element} Element Enemy</button>
         `).join('')}
       </div>
       <div class="debug-panel__group">
-        <button type="button" data-action="toggle-mode">Toggle Simultaneous Mode</button>
-        <button type="button" data-action="reset-build">Clear Elements / Reset Build</button>
+        <button type="button" data-core="Fire">Give Fire Core</button>
+        <button type="button" data-core="Earth">Give Earth Core</button>
+        <button type="button" data-core="Water">Give Water Core</button>
+        <button type="button" data-action="clear-pending">Clear Pending Elements</button>
+        <button type="button" data-action="clear-evolution">Clear Current Evolution</button>
       </div>
       <div class="debug-panel__group debug-panel__group--grid">
         <button type="button" data-action="xp">Give 100 XP</button>
@@ -29,15 +47,54 @@ export class DebugPanel {
         <button type="button" data-action="invincible">Toggle Invincible</button>
         <button type="button" data-action="kill-all">Kill All Enemies</button>
         <button type="button" data-action="skip-round">Skip To Round End</button>
+        <button type="button" data-action="force-next">Force Next Round</button>
+      </div>
+      <div class="debug-panel__group debug-panel__group--grid">
+        <button type="button" data-action="runner">Spawn Runner</button>
+        <button type="button" data-action="shooter">Spawn Shooter</button>
+        <button type="button" data-action="charger">Spawn Charger</button>
+        <button type="button" data-action="elite-shooter">Spawn Elite Shooter</button>
+        <button type="button" data-action="elite-charger">Spawn Elite Charger</button>
+        <button type="button" data-action="radial-elite">Spawn RadialBurst Elite</button>
+        <button type="button" data-action="armor">Give Armor</button>
+        <button type="button" data-action="dodge">Give Dodge</button>
+        <button type="button" data-action="regen">Give HP Regen</button>
+        <button type="button" data-action="pickup-range">Give Pickup Range</button>
+        <button type="button" data-action="spawn-money">Spawn 20 Money</button>
+        <button type="button" data-action="spawn-money-10">Spawn MoneyPickup ×10</button>
+        <button type="button" data-action="timer-5">Set Round Timer to 5 sec</button>
+        <button type="button" data-action="reset-evolution-tutorial">Reset Evolution Tutorial</button>
+      </div>
+      <div class="debug-panel__group">
+        <strong>WEAPON</strong>
+        <div class="debug-panel__group--grid">
+          <button type="button" data-weapon="Pistol">Equip Pistol</button>
+          <button type="button" data-weapon="SMG">Equip SMG</button>
+          <button type="button" data-weapon="Shotgun">Equip Shotgun</button>
+          <button type="button" data-quick-upgrade="damage">+ Damage</button>
+          <button type="button" data-quick-upgrade="attack-speed">+ AttackSpeed</button>
+          <button type="button" data-quick-upgrade="range">+ Range</button>
+          <button type="button" data-quick-upgrade="pierce">+ Pierce</button>
+          <button type="button" data-quick-upgrade="pellet-count">+ PelletCount</button>
+        </div>
+        <select data-weapon-upgrade-select>${weaponUpgrades.map((item) => `<option value="${item.id}">${item.name}</option>`).join('')}</select>
+        <button type="button" data-action="apply-weapon-upgrade">Apply Weapon Upgrade</button>
+        <select data-synergy-select>${synergyUpgrades.map((item) => `<option value="${item.id}">${item.name}</option>`).join('')}</select>
+        <button type="button" data-action="apply-synergy">Apply Synergy Upgrade</button>
+      </div>
+      <div class="debug-panel__group debug-panel__group--grid">
+        <button type="button" data-action="trigger-element-schedule">Trigger Scheduled Element Spawn</button>
       </div>
     `
     this.root.addEventListener('click', this.onClick)
+    this.root.addEventListener('change', this.onChange)
     this.animationFrame = requestAnimationFrame(this.render)
   }
 
   dispose(): void {
     cancelAnimationFrame(this.animationFrame)
     this.root.removeEventListener('click', this.onClick)
+    this.root.removeEventListener('change', this.onChange)
   }
 
   private readonly render = (): void => {
@@ -50,27 +107,71 @@ export class DebugPanel {
         `Time: ${state.remainingTime.toFixed(1)}s`,
         `Money: ${state.money}`,
         `Level / XP: ${state.level} / ${state.xp} / ${state.xpForNextLevel}`,
-        `Mode: ${state.fusionMode}`,
         `Invincible: ${state.invincible ? 'ON' : 'OFF'}`,
-        `Elements: ${state.elements.join(' → ') || 'None'}`,
+        `Current Evolution: ${state.currentEvolution || 'None'}`,
+        `Pending 1: ${state.pending1 || 'Empty'}`,
+        `Pending 2: ${state.pending2 || 'Empty'}`,
+        `Special Fusion Available: ${state.specialFusionAvailable ? 'YES' : 'NO'}`,
+        `Active Element Enemies: ${state.activeElementEnemies.join(', ') || 'None'}`,
+        `Active Element Cores: ${state.activeElementCores.join(', ') || 'None'}`,
+        `Encountered Elements: ${state.encounteredElements.join(', ') || 'None'}`,
         `Last Fusion: ${state.recentFusion || 'None'}`,
+        `Tester Skill: ${state.testerSkill || 'None'}`,
+        `Runtime Objects: ${state.runtimeObjects}`,
+        `Player HP: ${state.playerHp.toFixed(1)} / ${state.playerMaxHp.toFixed(1)}`,
+        `Armor: ${state.armor.toFixed(1)}`,
+        `Dodge: ${(state.dodgeChance * 100).toFixed(0)}%`,
+        `HP Regen: ${state.hpRegenPerSecond.toFixed(1)}/s`,
+        `Pickup Range: ${state.pickupRange.toFixed(1)}`,
+        `Enemies: C${state.enemyCounts.Chaser} R${state.enemyCounts.Runner} S${state.enemyCounts.Shooter} Cg${state.enemyCounts.Charger}`,
+        `Enemy Projectiles: ${state.enemyProjectileCount}`,
+        `Money Pickups: ${state.moneyPickupCount}`,
+        `Current Weapon: ${state.currentWeapon}`,
+        `Weapon: ${state.weaponStats}`,
+        `Evolution Behaviour: ${state.evolutionBehaviour}`,
+        `Active Synergy: ${state.activeSynergies.join(', ') || 'None'}`,
+        `Spawned Elements: ${state.spawnedElements.join(', ') || 'None'}`,
+        `Owned Buffs: ${state.ownedBuffs.join(', ') || 'None'}`,
+        `Final Multipliers: DMG ${state.damageMultiplier.toFixed(2)} | AS ${state.attackSpeedMultiplier.toFixed(2)} | MOVE ${state.moveSpeedMultiplier.toFixed(2)}`,
+        `Combat Elapsed: ${state.combatElapsed.toFixed(1)} / ${state.roundDuration.toFixed(1)}s`,
+        `Element Spawn Scheduled: ${state.elementSpawnScheduled ? 'YES' : 'NO'}`,
+        `Element Spawn Triggered: ${state.elementSpawnTriggered ? 'YES' : 'NO'}`,
+        `Evolution Tutorial Shown: ${state.evolutionTutorialShown ? 'YES' : 'NO'}`,
+        `Queued Element Cores: ${state.queuedElementCoreCount}`,
       ].join('\n')
     }
+    const select = this.root.querySelector<HTMLSelectElement>('[data-skill-select]')
+    if (select && select.value !== state.testerSkill) select.value = state.testerSkill
     this.animationFrame = requestAnimationFrame(this.render)
   }
 
   private readonly onClick = (event: MouseEvent): void => {
     const target = event.target
     if (!(target instanceof HTMLElement)) return
-    const element = target.dataset.element as ElementValue | undefined
-    if (element) {
-      this.actions.addElement(element)
+    const spawnElement = target.dataset.spawnElement as ElementValue | undefined
+    if (spawnElement) {
+      this.actions.spawnElementEnemy(spawnElement)
+      return
+    }
+    const core = target.dataset.core as ElementValue | undefined
+    if (core) { this.actions.giveElementCore(core); return }
+    const weapon = target.dataset.weapon as typeof WeaponType[keyof typeof WeaponType] | undefined
+    if (weapon) { this.actions.equipWeapon(weapon); return }
+    const quickUpgrade = target.dataset.quickUpgrade
+    if (quickUpgrade) {
+      const currentWeapon = this.actions.getSnapshot().currentWeapon.toLowerCase()
+      const id = quickUpgrade === 'pierce'
+        ? 'pistol-pierce'
+        : quickUpgrade === 'pellet-count'
+          ? 'shotgun-pellet-count'
+          : `${currentWeapon}-${quickUpgrade}`
+      this.actions.applyWeaponUpgrade(id)
       return
     }
 
     switch (target.dataset.action) {
-      case 'toggle-mode': this.actions.toggleSimultaneousMode(); break
-      case 'reset-build': this.actions.resetBuild(); break
+      case 'clear-pending': this.actions.clearPendingElements(); break
+      case 'clear-evolution': this.actions.clearCurrentEvolution(); break
       case 'xp': this.actions.giveXp(100); break
       case 'money': this.actions.giveMoney(100); break
       case 'spawn-10': this.actions.spawnEnemies(10); break
@@ -78,6 +179,41 @@ export class DebugPanel {
       case 'invincible': this.actions.toggleInvincible(); break
       case 'kill-all': this.actions.killAllEnemies(); break
       case 'skip-round': this.actions.skipToRoundEnd(); break
+      case 'force-next': this.actions.forceNextRound(); break
+      case 'previous-skill': this.actions.previousSkill(); break
+      case 'next-skill': this.actions.nextSkill(); break
+      case 'runner': this.actions.spawnEnemy(EnemyArchetype.Runner); break
+      case 'shooter': this.actions.spawnEnemy(EnemyArchetype.Shooter); break
+      case 'charger': this.actions.spawnEnemy(EnemyArchetype.Charger); break
+      case 'elite-shooter': this.actions.spawnEnemy(EnemyArchetype.Shooter, [EliteModifier.MultiShot, EliteModifier.RapidFire]); break
+      case 'elite-charger': this.actions.spawnEnemy(EnemyArchetype.Charger, [EliteModifier.Fast]); break
+      case 'radial-elite': this.actions.spawnEnemy(EnemyArchetype.Chaser, [EliteModifier.RadialBurst, EliteModifier.Tanky]); break
+      case 'armor': this.actions.giveArmor(); break
+      case 'dodge': this.actions.giveDodge(); break
+      case 'regen': this.actions.giveHpRegen(); break
+      case 'pickup-range': this.actions.givePickupRange(); break
+      case 'spawn-money': this.actions.spawnMoney(20); break
+      case 'spawn-money-10': this.actions.spawnUncollectedMoney(10); break
+      case 'timer-5': this.actions.setRoundTimerToFive(); break
+      case 'reset-evolution-tutorial': this.actions.resetEvolutionTutorial(); break
+      case 'apply-weapon-upgrade': {
+        const select = this.root.querySelector<HTMLSelectElement>('[data-weapon-upgrade-select]')
+        if (select) this.actions.applyWeaponUpgrade(select.value)
+        break
+      }
+      case 'apply-synergy': {
+        const select = this.root.querySelector<HTMLSelectElement>('[data-synergy-select]')
+        if (select) this.actions.applySynergyUpgrade(select.value)
+        break
+      }
+      case 'trigger-element-schedule': this.actions.triggerScheduledElementSpawn(); break
+    }
+  }
+
+  private readonly onChange = (event: Event): void => {
+    const target = event.target
+    if (target instanceof HTMLSelectElement && target.matches('[data-skill-select]')) {
+      this.actions.forceEvolution(target.value)
     }
   }
 }

@@ -20,8 +20,7 @@ type StateListener = (state: GameState) => void
 
 export class RoundSystem {
   currentRound = 1
-  readonly roundDuration = GAME_CONFIG.rounds.duration
-  remainingTime: number = this.roundDuration
+  remainingTime: number = this.getRoundDuration(1)
   state: GameState = GameState.Combat
   private readonly listeners = new Set<StateListener>()
 
@@ -62,6 +61,14 @@ export class RoundSystem {
     this.setState(GameState.GameOver)
   }
 
+  get roundDuration(): number { return this.getRoundDuration(this.currentRound) }
+  get combatElapsed(): number { return this.state === GameState.Combat ? this.roundDuration - this.remainingTime : 0 }
+
+  setRemainingTime(seconds: number): void {
+    if (this.state !== GameState.Combat) return
+    this.remainingTime = Math.max(0, Math.min(this.roundDuration, seconds))
+  }
+
   getDifficulty(): RoundDifficulty {
     const roundIndex = this.currentRound - 1
     const scaling = GAME_CONFIG.rounds.difficulty
@@ -75,5 +82,9 @@ export class RoundSystem {
   private setState(state: GameState): void {
     this.state = state
     for (const listener of this.listeners) listener(state)
+  }
+
+  private getRoundDuration(round: number): number {
+    return round === 1 ? GAME_CONFIG.rounds.firstRoundDuration : GAME_CONFIG.rounds.normalRoundDuration
   }
 }

@@ -1,4 +1,4 @@
-import type { ElementType } from '../elements/ElementType.ts'
+import { ELEMENT_PRESENTATION, type ElementType } from '../elements/ElementType.ts'
 import type { FusionEventBus } from './FusionEventBus.ts'
 import { FusionMode, type FusionCreatedEvent, type FusionRecipe } from './FusionTypes.ts'
 
@@ -32,6 +32,23 @@ export class FusionResolver {
       resultSkillId: recipe.resultSkillId,
       displayName: recipe.displayName,
       displayGlyph: recipe.displayGlyph,
+      sourceLabel: `${ELEMENT_PRESENTATION[inputA].glyph} ${mode === FusionMode.Sequential ? '→' : '+'} ${ELEMENT_PRESENTATION[inputB].glyph}`,
+    }
+    this.events.emit(event)
+    return event
+  }
+
+  resolveSingle(element: ElementType): FusionCreatedEvent {
+    const presentation = ELEMENT_PRESENTATION[element]
+    const event: FusionCreatedEvent = {
+      recipeId: `single-${element.toLowerCase()}`,
+      inputA: element,
+      inputB: element,
+      mode: FusionMode.Sequential,
+      resultSkillId: `element-${element.toLowerCase()}`,
+      displayName: presentation.name,
+      displayGlyph: presentation.glyph,
+      sourceLabel: presentation.glyph,
     }
     this.events.emit(event)
     return event

@@ -2,14 +2,17 @@ import * as THREE from 'three'
 import { GAME_CONFIG } from '../config/gameConfig.ts'
 import { Health } from './Health.ts'
 import { PlayerStats } from './PlayerStats.ts'
+import { PlayerDamageReceiver } from '../combat/PlayerDamageReceiver.ts'
 
 export class Player {
   readonly object: THREE.Group
-  readonly health = new Health(GAME_CONFIG.player.maxHp)
   readonly stats = new PlayerStats()
+  readonly health = new Health(this.stats.maxHP)
+  readonly damageReceiver = new PlayerDamageReceiver(this.health, this.stats)
   readonly radius = GAME_CONFIG.player.radius
   level = 1
   xp = 0
+  private readonly facingMaterial: THREE.MeshStandardMaterial
 
   constructor() {
     this.object = new THREE.Group()
@@ -22,9 +25,10 @@ export class Player {
     body.position.y = 0.6
     body.castShadow = true
 
+    this.facingMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff })
     const facingMarker = new THREE.Mesh(
       new THREE.ConeGeometry(0.2, 0.5, 8),
-      new THREE.MeshStandardMaterial({ color: 0xffffff }),
+      this.facingMaterial,
     )
     facingMarker.rotation.x = Math.PI / 2
     facingMarker.position.set(0, 0.75, -0.72)
@@ -32,7 +36,15 @@ export class Player {
     this.object.add(body, facingMarker)
   }
 
+  setEvolutionColor(color?: number): void {
+    this.facingMaterial.color.setHex(color ?? 0xffffff)
+    this.facingMaterial.emissive.setHex(color ?? 0x000000)
+    this.facingMaterial.emissiveIntensity = color === undefined ? 0 : 0.65
+  }
+
   move(direction: THREE.Vector2, delta: number, speedMultiplier = 1): void {
+    this.damageReceiver.update(delta)
+    if (this.health.max !== this.stats.maxHP) this.health.setMax(this.stats.maxHP, true)
     const speed = GAME_CONFIG.player.moveSpeed * speedMultiplier
     this.object.position.x += direction.x * speed * delta
     this.object.position.z += direction.y * speed * delta

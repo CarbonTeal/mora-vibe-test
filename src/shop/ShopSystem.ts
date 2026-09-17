@@ -1,21 +1,31 @@
 import { GAME_CONFIG } from '../config/gameConfig.ts'
 import type { PlayerStats } from '../entities/PlayerStats.ts'
 import type { Wallet } from '../economy/Wallet.ts'
-import type { ShopItemDefinition, ShopOffer } from './ShopItem.ts'
+import type { WeaponRuntime } from '../combat/WeaponRuntime.ts'
+import type { BuffDefinition, BuffOffer, BuffTag } from './BuffDefinition.ts'
+import { BuffRuntime } from './BuffRuntime.ts'
+import { getSkillDefinition } from '../skills/SkillRegistry.ts'
+import { getSkillGameplayTags } from './SkillGameplayTags.ts'
+import { WeaponType } from '../combat/WeaponDefinition.ts'
 
 type ShopListener = () => void
 
 export class ShopSystem {
-  readonly offers: ShopOffer[] = []
-  private readonly catalog: readonly ShopItemDefinition[]
+  readonly offers: BuffOffer[] = []
+  readonly buffs: BuffRuntime
+  purchasesThisShop = 0
+  private readonly catalog: readonly BuffDefinition[]
   private readonly wallet: Wallet
-  private readonly stats: PlayerStats
+  private readonly weapon: WeaponRuntime
+  private readonly getEvolutionId: () => string
   private readonly listeners = new Set<ShopListener>()
 
-  constructor(catalog: readonly ShopItemDefinition[], wallet: Wallet, stats: PlayerStats) {
+  constructor(catalog: readonly BuffDefinition[], wallet: Wallet, stats: PlayerStats, weapon: WeaponRuntime, getEvolutionId: () => string) {
     this.catalog = catalog
     this.wallet = wallet
-    this.stats = stats
+    this.weapon = weapon
+    this.getEvolutionId = getEvolutionId
+    this.buffs = new BuffRuntime(stats, weapon)
   }
 
   subscribe(listener: ShopListener): () => void {
@@ -24,24 +34,63 @@ export class ShopSystem {
   }
 
   open(): void {
-    const shuffled = [...this.catalog].sort(() => Math.random() - 0.5)
+    this.purchasesThisShop = 0
+    const eligible = this.catalog.filter((definition) => this.isEligible(definition))
     this.offers.length = 0
-    this.offers.push(
-      ...shuffled.slice(0, GAME_CONFIG.shop.itemCount).map((definition) => ({
-        definition,
-        purchased: false,
-      })),
-    )
+    const pool = [...eligible]
+    while (this.offers.length < GAME_CONFIG.shop.itemCount && pool.length > 0) {
+      const totalWeight = pool.reduce((sum, definition) => sum + this.getWeight(definition), 0)
+      let roll = Math.random() * totalWeight
+      let index = pool.length - 1
+      for (let i = 0; i < pool.length; i += 1) {
+        roll -= this.getWeight(pool[i])
+        if (roll <= 0) { index = i; break }
+      }
+      const [definition] = pool.splice(index, 1)
+      this.offers.push({ definition, purchased: false })
+    }
     this.emitChanged()
   }
 
   purchase(itemId: string): boolean {
     const offer = this.offers.find((candidate) => candidate.definition.id === itemId)
-    if (!offer || offer.purchased || !this.wallet.spend(offer.definition.cost)) return false
-    offer.definition.apply(this.stats)
+    if (!offer || offer.purchased || this.purchasesThisShop >= GAME_CONFIG.shop.maxPurchasesPerShop) return false
+    if (!this.buffs.canAcquire(offer.definition) || !this.wallet.spend(offer.definition.price)) return false
+    if (!this.buffs.acquire(offer.definition)) return false
     offer.purchased = true
+    this.purchasesThisShop += 1
     this.emitChanged()
     return true
+  }
+
+  get purchaseLimitReached(): boolean { return this.purchasesThisShop >= GAME_CONFIG.shop.maxPurchasesPerShop }
+
+  getWeight(definition: BuffDefinition): number {
+    const preferred = this.preferredTags
+    const matches = definition.tags.filter((tag) => preferred.has(tag)).length
+    return definition.weight * (1 + Math.min(2, matches) * (GAME_CONFIG.shop.recommendationMultiplier - 1))
+  }
+
+  private isEligible(definition: BuffDefinition): boolean {
+    if (!this.buffs.canAcquire(definition)) return false
+    const evolutionId = this.getEvolutionId()
+    const evolutionTags = new Set(getSkillGameplayTags(getSkillDefinition(evolutionId)))
+    return definition.requirements.every((requirement) => {
+      if (requirement.type === 'Weapon') return requirement.values.includes(this.weapon.weaponType)
+      if (requirement.type === 'EvolutionId') return requirement.values.includes(evolutionId)
+      return requirement.values.some((value) => evolutionTags.has(value as BuffTag))
+    })
+  }
+
+  private get preferredTags(): Set<BuffTag> {
+    const tags = new Set(getSkillGameplayTags(getSkillDefinition(this.getEvolutionId())))
+    const weaponTags: Partial<Record<WeaponType, readonly BuffTag[]>> = {
+      [WeaponType.Pistol]: ['Damage', 'Range', 'Pierce'],
+      [WeaponType.SMG]: ['AttackSpeed', 'Damage', 'Projectile'],
+      [WeaponType.Shotgun]: ['PelletCount', 'Range', 'Knockback', 'Damage'],
+    }
+    for (const tag of weaponTags[this.weapon.weaponType] ?? []) tags.add(tag)
+    return tags
   }
 
   private emitChanged(): void {

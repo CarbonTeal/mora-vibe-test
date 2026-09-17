@@ -2,28 +2,42 @@ import * as THREE from 'three'
 import { GAME_CONFIG } from '../config/gameConfig.ts'
 import type { DebugActions, DebugSnapshot } from '../debug/DebugTypes.ts'
 import { ElementBuildSystem } from '../elements/ElementBuildSystem.ts'
+import { EvolutionSystem } from '../elements/EvolutionSystem.ts'
+import type { ElementDiscardChoice } from '../elements/ElementInventory.ts'
+import { ELEMENT_PRESENTATION } from '../elements/ElementType.ts'
 import type { ElementType } from '../elements/ElementType.ts'
+import { ElementEnemy } from '../entities/ElementEnemy.ts'
 import { Player } from '../entities/Player.ts'
 import { Wallet } from '../economy/Wallet.ts'
 import { FusionEventBus } from '../fusion/FusionEventBus.ts'
 import { FusionResolver } from '../fusion/FusionResolver.ts'
 import { FUSION_RECIPES } from '../fusion/fusionRecipes.ts'
 import { GameState, RoundSystem } from '../rounds/RoundSystem.ts'
-import { getSkillDefinition, resolveDebugSkillLoadout } from '../skills/SkillRegistry.ts'
+import { EVOLUTION_SKILL_DEFINITIONS, getSkillDefinition, resolveDebugSkillLoadout } from '../skills/SkillRegistry.ts'
 import type { SkillDefinition } from '../skills/SkillDefinition.ts'
 import { SkillRuntime } from '../skills/runtime/SkillRuntime.ts'
 import { SHOP_ITEM_DEFINITIONS } from '../shop/shopItems.ts'
 import { ShopPanel } from '../shop/ShopPanel.ts'
 import { ShopSystem } from '../shop/ShopSystem.ts'
 import { EnemySystem } from '../systems/EnemySystem.ts'
+import { ElementCoreSystem } from '../systems/ElementCoreSystem.ts'
+import { ElementEnemyDirector } from '../systems/ElementEnemyDirector.ts'
 import { HudSystem, type HudElements } from '../systems/HudSystem.ts'
 import { InputSystem } from '../systems/InputSystem.ts'
 import { FusionFeedback, type FusionFeedbackElements } from '../ui/FusionFeedback.ts'
+import { ElementSlotsPanel, type ElementSlotsElements } from '../ui/ElementSlotsPanel.ts'
+import { MoneyPickupSystem } from '../systems/MoneyPickupSystem.ts'
+import { CombatFeedback } from '../ui/CombatFeedback.ts'
+import { WeaponRuntime } from '../combat/WeaponRuntime.ts'
+import { WEAPON_UPGRADES } from '../combat/WeaponUpgradeDefinition.ts'
+import { SYNERGY_UPGRADES } from '../combat/SynergyUpgradeDefinition.ts'
 
 export interface GameUiElements {
   hud: HudElements
   fusion: FusionFeedbackElements
+  elementSlots: ElementSlotsElements
   shopRoot: HTMLElement
+  combatFeedback: HTMLElement
 }
 
 export class Game {
@@ -37,18 +51,27 @@ export class Game {
   private readonly rounds = new RoundSystem()
   private readonly fusionEvents = new FusionEventBus()
   private readonly fusionResolver = new FusionResolver(FUSION_RECIPES, this.fusionEvents)
-  private readonly build = new ElementBuildSystem(this.fusionResolver, this.fusionEvents)
+  private readonly build = new ElementBuildSystem(this.fusionEvents)
+  private readonly evolution = new EvolutionSystem(this.build, this.fusionResolver)
   private readonly enemySystem: EnemySystem
+  private readonly elementEnemyDirector: ElementEnemyDirector
+  private readonly elementCoreSystem: ElementCoreSystem
+  private readonly moneyPickupSystem: MoneyPickupSystem
   private readonly skillRuntime: SkillRuntime
+  private readonly weaponRuntime = new WeaponRuntime()
   private readonly initialSkillDefinitions: readonly SkillDefinition[]
   private readonly hudSystem: HudSystem
   private readonly shopSystem: ShopSystem
   private readonly shopPanel: ShopPanel
   private readonly fusionFeedback: FusionFeedback
+  private readonly elementSlotsPanel: ElementSlotsPanel
+  private readonly combatFeedback: CombatFeedback
   private readonly unsubscribeFusionSkill: () => void
   private readonly unsubscribeRound: () => void
   private animationFrame = 0
   private isDisposed = false
+  private debugSkillIndex = 0
+  private hasSelectedStarterWeapon = false
 
   constructor(canvas: HTMLCanvasElement, ui: GameUiElements) {
     this.scene.background = new THREE.Color(GAME_CONFIG.arena.backgroundColor)
@@ -67,13 +90,27 @@ export class Game {
 
     this.initialSkillDefinitions = resolveDebugSkillLoadout(window.location.search)
     this.enemySystem = new EnemySystem(this.scene)
+    this.elementEnemyDirector = new ElementEnemyDirector(this.enemySystem)
+    this.elementCoreSystem = new ElementCoreSystem(this.scene, (element) => {
+      this.build.pickupElement(element)
+      this.elementSlotsPanel?.notifyElementPickup(element)
+    })
+    this.moneyPickupSystem = new MoneyPickupSystem(this.scene)
     this.skillRuntime = new SkillRuntime(
       this.scene,
       this.initialSkillDefinitions,
-      () => this.wallet.add(GAME_CONFIG.economy.enemyKillMoney),
+      this.weaponRuntime,
     )
+    this.combatFeedback = new CombatFeedback(ui.combatFeedback)
+    this.player.damageReceiver.onDodge = () => this.combatFeedback.showDodge()
     this.hudSystem = new HudSystem(ui.hud)
-    this.shopSystem = new ShopSystem(SHOP_ITEM_DEFINITIONS, this.wallet, this.player.stats)
+    this.shopSystem = new ShopSystem(
+      SHOP_ITEM_DEFINITIONS,
+      this.wallet,
+      this.player.stats,
+      this.weaponRuntime,
+      () => this.build.state.currentEvolution?.id ?? '',
+    )
     this.shopPanel = new ShopPanel(
       ui.shopRoot,
       this.shopSystem,
@@ -81,9 +118,18 @@ export class Game {
       () => this.rounds.startNextRound(),
     )
     this.fusionFeedback = new FusionFeedback(ui.fusion, this.fusionEvents)
+    this.elementSlotsPanel = new ElementSlotsPanel(
+      ui.elementSlots,
+      () => this.evolveElements(),
+      (choice) => this.resolveElementOverflow(choice),
+    )
     this.unsubscribeFusionSkill = this.fusionEvents.subscribe((event) => {
       const definition = getSkillDefinition(event.resultSkillId)
-      if (definition) this.skillRuntime.unlockDefinition(definition)
+      if (definition) {
+        this.skillRuntime.setEvolutionDefinition(definition)
+        this.weaponRuntime.setEvolution(definition.id)
+      }
+      this.player.setEvolutionColor(ELEMENT_PRESENTATION[event.inputA].color)
     })
     this.unsubscribeRound = this.rounds.subscribe(this.onRoundStateChanged)
     this.timer.connect(document)
@@ -103,23 +149,63 @@ export class Game {
 
   getDebugActions(): DebugActions {
     return {
-      addElement: (element: ElementType) => this.build.addElement(element),
-      toggleSimultaneousMode: () => { this.build.toggleMode() },
-      resetBuild: () => {
-        this.build.reset()
+      spawnElementEnemy: (element: ElementType) => {
+        this.elementEnemyDirector.spawnSpecific(element, this.player.object.position)
+      },
+      giveElementCore: (element: ElementType) => {
+        this.elementCoreSystem.spawn(element, this.player.object.position)
+      },
+      clearPendingElements: () => this.build.clearPendingElements(),
+      clearCurrentEvolution: () => {
+        this.build.clearCurrentEvolution()
+        this.player.setEvolutionColor()
         this.skillRuntime.resetDefinitions(this.initialSkillDefinitions)
+        this.weaponRuntime.setEvolution('')
       },
       giveXp: (amount: number) => this.player.gainExperience(amount),
       giveMoney: (amount: number) => this.wallet.add(amount),
       spawnEnemies: (count: number) => this.enemySystem.spawnMany(count, this.player.object.position),
+      spawnEnemy: (archetype, eliteModifiers = []) => {
+        this.enemySystem.spawnArchetype(archetype, this.player.object.position, eliteModifiers)
+      },
+      giveArmor: () => this.player.stats.addArmor(GAME_CONFIG.debug.armorGrant),
+      giveDodge: () => this.player.stats.addDodgeChance(GAME_CONFIG.debug.dodgeGrant),
+      giveHpRegen: () => this.player.stats.addHpRegen(GAME_CONFIG.debug.hpRegenGrant),
+      givePickupRange: () => this.player.stats.addPickupRange(GAME_CONFIG.debug.pickupRangeGrant),
+      spawnMoney: (count: number) => this.moneyPickupSystem.spawnMany(this.player.object.position, count),
+      spawnUncollectedMoney: (count: number) => this.moneyPickupSystem.spawnMany(
+        this.player.object.position.clone().add(new THREE.Vector3(10, 0, 0)),
+        count,
+      ),
+      equipWeapon: (weapon) => this.weaponRuntime.equip(weapon),
+      applyWeaponUpgrade: (upgradeId) => {
+        const upgrade = WEAPON_UPGRADES.find((candidate) => candidate.id === upgradeId)
+        if (upgrade) this.weaponRuntime.applyWeaponUpgrade(upgrade)
+      },
+      applySynergyUpgrade: (upgradeId) => {
+        const upgrade = SYNERGY_UPGRADES.find((candidate) => candidate.id === upgradeId)
+        if (upgrade) this.weaponRuntime.applySynergyUpgrade(upgrade)
+      },
+      triggerScheduledElementSpawn: () => {
+        this.elementEnemyDirector.triggerScheduledSpawn(this.rounds.currentRound, this.player.object.position)
+      },
+      setRoundTimerToFive: () => this.rounds.setRemainingTime(5),
+      resetEvolutionTutorial: () => this.elementSlotsPanel.resetTutorial(),
       toggleInvincible: () => {
         this.player.health.isInvincible = !this.player.health.isInvincible
       },
       killAllEnemies: () => {
         this.skillRuntime.defeatAll(this.enemySystem.enemies, this.player)
-        this.enemySystem.removeDefeated()
+        this.handleDefeatedEnemies(this.enemySystem.removeDefeated())
       },
       skipToRoundEnd: () => this.rounds.endRound(),
+      forceNextRound: () => this.forceNextRound(),
+      forceEvolution: (skillId: string) => this.forceEvolution(skillId),
+      nextSkill: () => this.stepDebugSkill(1),
+      previousSkill: () => this.stepDebugSkill(-1),
+      getSkillOptions: () => EVOLUTION_SKILL_DEFINITIONS.map(({ id, name, tier }) => ({ id, name, tier })),
+      getWeaponUpgradeOptions: () => WEAPON_UPGRADES.map(({ id, name, weaponType }) => ({ id, name: `${weaponType} · ${name}` })),
+      getSynergyUpgradeOptions: () => SYNERGY_UPGRADES.map(({ id, name, requirements }) => ({ id, name: `${requirements.weaponType} + ${requirements.evolutionId} · ${name}` })),
       getSnapshot: () => this.getDebugSnapshot(),
     }
   }
@@ -134,9 +220,13 @@ export class Game {
     this.input.dispose()
     this.build.dispose()
     this.fusionFeedback.dispose()
+    this.elementSlotsPanel.dispose()
     this.shopPanel.dispose()
     this.skillRuntime.dispose()
     this.enemySystem.dispose()
+    this.elementCoreSystem.dispose()
+    this.moneyPickupSystem.dispose()
+    this.combatFeedback.dispose()
     this.player.dispose()
     this.timer.dispose()
     this.renderer.dispose()
@@ -146,9 +236,11 @@ export class Game {
     if (this.isDisposed) return
     this.timer.update()
     const delta = Math.min(this.timer.getDelta(), GAME_CONFIG.loop.maxDelta)
-    this.rounds.update(delta)
+    const isElementChoicePaused = Boolean(this.build.state.elements.pendingElement)
+    if (!isElementChoicePaused) this.rounds.update(delta)
 
-    if (this.rounds.state === GameState.Combat && !this.player.health.isDead) {
+    if (this.rounds.state === GameState.Combat && !this.player.health.isDead && !isElementChoicePaused) {
+      this.elementEnemyDirector.update(this.rounds.combatElapsed, this.player.object.position)
       this.player.move(
         this.input.getMovementDirection(),
         delta,
@@ -159,14 +251,22 @@ export class Game {
         delta,
         this.player,
         (enemy) => this.skillRuntime.getEnemyMoveSpeedMultiplier(enemy),
+        (enemy) => this.skillRuntime.getEnemyAttackRateMultiplier(enemy),
+        (enemy) => this.skillRuntime.getEnemyDamageOutputMultiplier(enemy),
       )
-      this.enemySystem.removeDefeated()
+      this.handleDefeatedEnemies(this.enemySystem.removeDefeated())
+      this.moneyPickupSystem.update(delta, this.player, this.wallet)
 
       if (this.player.health.isDead) this.rounds.enterGameOver()
     }
 
+    if (!isElementChoicePaused) {
+      this.elementCoreSystem.update(delta, this.player, this.rounds.state === GameState.Combat)
+    }
+
     this.updateCamera(delta)
     this.updateHud()
+    this.elementSlotsPanel.render(this.build.state)
     this.renderer.render(this.scene, this.camera)
     this.animationFrame = requestAnimationFrame(this.tick)
   }
@@ -176,20 +276,36 @@ export class Game {
       case GameState.Combat:
         this.shopPanel.hide()
         this.enemySystem.setDifficulty(this.rounds.getDifficulty())
+        this.enemySystem.setRound(this.rounds.currentRound)
         this.enemySystem.setSpawningEnabled(true)
-        if (this.enemySystem.enemies.length === 0) {
+        this.elementEnemyDirector.onRoundStarted(this.rounds.currentRound)
+        if (!this.enemySystem.enemies.some((enemy) => !enemy.isPersistent)) {
           this.enemySystem.spawnInitialWave(this.player.object.position)
         }
         break
       case GameState.RoundEnd:
         this.enemySystem.setSpawningEnabled(false)
         this.skillRuntime.clearCombatState()
-        this.enemySystem.clearAll()
+        this.enemySystem.clearNormalEnemies()
+        this.elementCoreSystem.collectAll()
+        const recovered = this.moneyPickupSystem.collectAtRoundEnd(
+          this.wallet,
+          GAME_CONFIG.economy.roundEndMoneyAutoCollectRatio,
+        )
+        this.shopPanel.setRoundEndNotice(recovered.total > 0 ? `未拾金币回收：+${recovered.collected}` : '')
         this.rounds.enterShop()
         break
       case GameState.Shop:
-        this.shopSystem.open()
-        this.shopPanel.show()
+        if (this.rounds.currentRound === 1 && !this.hasSelectedStarterWeapon) {
+          this.shopPanel.showStarterWeaponSelection((weapon) => {
+            this.weaponRuntime.equip(weapon)
+            this.hasSelectedStarterWeapon = true
+            this.rounds.startNextRound()
+          })
+        } else {
+          this.shopSystem.open()
+          this.shopPanel.show()
+        }
         break
       case GameState.GameOver:
         this.enemySystem.setSpawningEnabled(false)
@@ -208,10 +324,90 @@ export class Game {
       level: this.player.level,
       xp: this.player.xp,
       xpForNextLevel: this.player.xpForNextLevel,
-      elements: this.build.state.elements.history.map((entry) => entry.element),
-      fusionMode: this.build.mode,
+      currentEvolution: this.build.state.currentEvolution?.id ?? '',
+      pending1: this.build.state.elements.pending1?.element ?? '',
+      pending2: this.build.state.elements.pending2?.element ?? '',
+      specialFusionAvailable: this.build.state.elements.specialFusionAvailable,
+      activeElementEnemies: this.elementEnemyDirector.activeElementEnemies.map((enemy) => enemy.elementType),
+      activeElementCores: this.elementCoreSystem.cores.map((core) => core.elementType),
+      encounteredElements: [...this.elementEnemyDirector.spawnedElementTypes],
       recentFusion: recent ? `${recent.displayGlyph} ${recent.displayName}` : '',
       invincible: this.player.health.isInvincible,
+      testerSkill: EVOLUTION_SKILL_DEFINITIONS[this.debugSkillIndex]?.id ?? '',
+      runtimeObjects: this.skillRuntime.debugObjectCounts,
+      playerHp: this.player.health.current,
+      playerMaxHp: this.player.health.max,
+      armor: this.player.stats.armor,
+      dodgeChance: this.player.stats.dodgeChance,
+      hpRegenPerSecond: this.player.stats.hpRegenPerSecond,
+      pickupRange: this.player.stats.pickupRange,
+      enemyCounts: this.enemySystem.countsByArchetype,
+      enemyProjectileCount: this.enemySystem.enemyProjectiles.projectiles.length,
+      moneyPickupCount: this.moneyPickupSystem.pickups.length,
+      currentWeapon: this.weaponRuntime.weaponType,
+      weaponStats: this.formatWeaponStats(),
+      evolutionBehaviour: this.getCurrentEvolutionBehaviour(),
+      activeSynergies: this.weaponRuntime.synergy.activeSummary,
+      spawnedElements: [...this.elementEnemyDirector.spawnedElementTypes],
+      ownedBuffs: this.shopSystem.buffs.ownedSummary,
+      damageMultiplier: this.player.stats.damageMultiplier,
+      attackSpeedMultiplier: this.player.stats.attackSpeedMultiplier,
+      moveSpeedMultiplier: this.player.stats.moveSpeedMultiplier,
+      combatElapsed: this.rounds.combatElapsed,
+      roundDuration: this.rounds.roundDuration,
+      elementSpawnScheduled: this.elementEnemyDirector.isSpawnScheduled,
+      elementSpawnTriggered: this.elementEnemyDirector.hasTriggeredThisRound,
+      evolutionTutorialShown: this.elementSlotsPanel.hasShownEvolutionTutorial,
+      queuedElementCoreCount: this.build.queuedElementCoreCount,
+    }
+  }
+
+  private evolveElements(): void {
+    if (this.rounds.state !== GameState.Combat) return
+    this.elementSlotsPanel.dismissTutorial()
+    this.evolution.evolve()
+  }
+
+  private resolveElementOverflow(choice: ElementDiscardChoice): void {
+    this.build.resolveOverflow(choice)
+  }
+
+  private forceNextRound(): void {
+    if (this.rounds.state === GameState.Combat) {
+      this.rounds.endRound()
+      return
+    }
+    if (this.rounds.state === GameState.Shop && (this.rounds.currentRound !== 1 || this.hasSelectedStarterWeapon)) {
+      this.rounds.startNextRound()
+    }
+  }
+
+  private forceEvolution(skillId: string): void {
+    const definition = getSkillDefinition(skillId)
+    if (!definition || definition.id === 'basic-projectile') return
+    const index = EVOLUTION_SKILL_DEFINITIONS.findIndex((candidate) => candidate.id === skillId)
+    if (index >= 0) this.debugSkillIndex = index
+    this.build.forceEvolution(definition)
+    this.skillRuntime.setEvolutionDefinition(definition)
+    this.weaponRuntime.setEvolution(definition.id)
+    this.player.setEvolutionColor(definition.visual.color)
+  }
+
+  private stepDebugSkill(direction: number): void {
+    const count = EVOLUTION_SKILL_DEFINITIONS.length
+    this.debugSkillIndex = (this.debugSkillIndex + direction + count) % count
+    this.forceEvolution(EVOLUTION_SKILL_DEFINITIONS[this.debugSkillIndex].id)
+  }
+
+  private handleDefeatedEnemies(defeated: readonly import('../entities/Enemy.ts').Enemy[]): void {
+    for (const enemy of defeated) {
+      if (enemy instanceof ElementEnemy) {
+        this.skillRuntime.finalizeSpecialDefeat(enemy, this.player, true)
+      }
+      this.moneyPickupSystem.spawn(enemy.object.position, enemy.moneyReward)
+      if (enemy instanceof ElementEnemy) {
+        this.elementCoreSystem.spawn(enemy.elementType, enemy.object.position)
+      }
     }
   }
 
@@ -223,6 +419,16 @@ export class Game {
       this.rounds,
       this.wallet,
     )
+  }
+
+  private formatWeaponStats(): string {
+    const stats = this.weaponRuntime.stats
+    return `DMG ${stats.damage.toFixed(1)} | INT ${stats.attackInterval.toFixed(2)} | RNG ${stats.range.toFixed(1)} | COUNT ${stats.projectileCount} | SPREAD ${stats.spread.toFixed(2)} | PIERCE ${stats.pierce}`
+  }
+
+  private getCurrentEvolutionBehaviour(): string {
+    const id = this.build.state.currentEvolution?.id
+    return id ? (getSkillDefinition(id)?.behaviour ?? getSkillDefinition(id)?.form ?? 'Unknown') : 'Basic Projectile'
   }
 
   private createEnvironment(): void {

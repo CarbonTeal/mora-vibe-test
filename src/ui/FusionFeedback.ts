@@ -3,6 +3,7 @@ import type { FusionCreatedEvent } from '../fusion/FusionTypes.ts'
 
 export interface FusionFeedbackElements {
   root: HTMLElement
+  source: HTMLElement
   glyph: HTMLElement
   name: HTMLElement
 }
@@ -24,6 +25,7 @@ export class FusionFeedback {
 
   private show(event: FusionCreatedEvent): void {
     window.clearTimeout(this.hideTimer)
+    this.elements.source.textContent = event.sourceLabel
     this.elements.glyph.textContent = event.displayGlyph
     this.elements.name.textContent = event.displayName
     this.elements.root.classList.remove('fusion-feedback--visible')

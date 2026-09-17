@@ -3,6 +3,7 @@ import type { Enemy } from '../../entities/Enemy.ts'
 import type { Player } from '../../entities/Player.ts'
 import type { SkillDefinition } from '../SkillDefinition.ts'
 import { CostType, EffectType } from '../SkillEnums.ts'
+import { GAME_CONFIG } from '../../config/gameConfig.ts'
 import type { StatusSystem } from './StatusSystem.ts'
 
 export interface EffectContext {
@@ -10,6 +11,16 @@ export interface EffectContext {
   target: Enemy
   player: Player
   sourcePosition: THREE.Vector3
+  damageScale?: number
+  durationMultiplier?: number
+  tickRateMultiplier?: number
+  stackCapBonus?: number
+  stackGainBonus?: number
+  pullMultiplier?: number
+  freezeDurationMultiplier?: number
+  freezeBuildupMultiplier?: number
+  allowStackingStatus?: boolean
+  extraKnockback?: number
 }
 
 export class EffectResolver {
@@ -21,7 +32,10 @@ export class EffectResolver {
 
   apply(context: EffectContext): boolean {
     const wasAlive = !context.target.health.isDead
-    const damageMultiplier = this.getDamageMultiplier(context.definition) * context.player.stats.damageMultiplier
+    const damageMultiplier = this.getDamageMultiplier(context.definition) *
+      context.player.stats.damageMultiplier *
+      this.statuses.getDamageTakenMultiplier(context.target) *
+      (context.damageScale ?? 1)
 
     for (const effect of context.definition.effects) {
       if (context.target.health.isDead) break
@@ -35,9 +49,20 @@ export class EffectResolver {
             context.target,
             context.definition.id,
             effect.value * damageMultiplier,
-            effect.duration ?? 1,
-            effect.interval ?? 0.5,
+            (effect.duration ?? 1) * (context.durationMultiplier ?? 1),
+            (effect.interval ?? 0.5) * (context.tickRateMultiplier ?? 1),
           )
+          break
+        case EffectType.Burn:
+          this.statuses.applyDamageOverTime(context.target, `${context.definition.id}:burn`, effect.value * damageMultiplier, (effect.duration ?? 2) * (context.durationMultiplier ?? 1), (effect.interval ?? 0.5) * (context.tickRateMultiplier ?? 1))
+          break
+        case EffectType.Poison:
+          if (context.allowStackingStatus !== false) {
+            const gains = 1 + Math.max(0, Math.round(context.stackGainBonus ?? 0))
+            for (let stack = 0; stack < gains; stack += 1) {
+              this.statuses.applyDamageOverTime(context.target, `${context.definition.id}:poison`, effect.value * damageMultiplier, (effect.duration ?? 3) * (context.durationMultiplier ?? 1), (effect.interval ?? 0.5) * (context.tickRateMultiplier ?? 1), true, GAME_CONFIG.skills.poisonStackCap + Math.max(0, Math.round(context.stackCapBonus ?? 0)))
+            }
+          }
           break
         case EffectType.Slow:
           this.statuses.applySlow(
@@ -48,18 +73,33 @@ export class EffectResolver {
           )
           break
         case EffectType.Knockback:
-          this.moveTarget(context, effect.value)
+          this.moveTarget(context, effect.value * (context.pullMultiplier ?? 1))
           break
         case EffectType.Pull:
-          this.moveTarget(context, -effect.value)
+          this.moveTarget(context, -effect.value * (context.pullMultiplier ?? 1))
           break
         case EffectType.Freeze:
-          this.statuses.applySlow(context.target, context.definition.id, 0, effect.duration ?? 1)
+          if (context.allowStackingStatus !== false) {
+            this.statuses.applyFreeze(context.target, context.definition.id, effect.value * (context.freezeBuildupMultiplier ?? 1), (effect.duration ?? 1) * (context.freezeDurationMultiplier ?? 1))
+          }
           break
         case EffectType.Heal:
           context.player.health.heal(effect.value)
           break
+        case EffectType.ArmorBreak:
+          this.statuses.applyArmorBreak(context.target, context.definition.id, effect.value, effect.duration ?? 2)
+          break
+        case EffectType.AttackRateDown:
+          this.statuses.applyAttackRateDown(context.target, context.definition.id, effect.value, effect.duration ?? 1)
+          break
+        case EffectType.DamageDown:
+          this.statuses.applyDamageDown(context.target, context.definition.id, effect.value, effect.duration ?? 1)
+          break
       }
+    }
+
+    if ((context.extraKnockback ?? 0) > 0 && !context.target.health.isDead) {
+      this.moveTarget(context, context.extraKnockback ?? 0)
     }
 
     return wasAlive && context.target.health.isDead
@@ -99,8 +139,11 @@ export class EffectResolver {
   private moveTarget(context: EffectContext, distance: number): void {
     const direction = context.target.object.position.clone().sub(context.sourcePosition)
     direction.y = 0
-    if (direction.lengthSq() > 0) {
+    if (direction.lengthSq() > 0 && Number.isFinite(distance)) {
       context.target.object.position.addScaledVector(direction.normalize(), distance)
+      if (!Number.isFinite(context.target.object.position.x) || !Number.isFinite(context.target.object.position.z)) {
+        context.target.object.position.copy(context.sourcePosition)
+      }
     }
   }
 }

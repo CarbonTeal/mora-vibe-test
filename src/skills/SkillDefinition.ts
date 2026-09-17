@@ -5,6 +5,7 @@ import type {
   SkillCarrier,
   SkillForm,
   SkillTrigger,
+  SkillBehaviour,
 } from './SkillEnums.ts'
 
 export interface EffectDefinition {
@@ -29,6 +30,7 @@ export interface SkillVisualDefinition {
   accentColor?: number
   opacity?: number
   scale?: number
+  shape?: 'sphere' | 'blade' | 'curtain'
 }
 
 export interface SkillDefinition {
@@ -38,6 +40,7 @@ export interface SkillDefinition {
   trigger: SkillTrigger
   carrier: SkillCarrier
   form: SkillForm
+  behaviour?: SkillBehaviour
   effects: readonly EffectDefinition[]
   modifiers: readonly ModifierDefinition[]
   costs: readonly CostDefinition[]
@@ -45,4 +48,7 @@ export interface SkillDefinition {
   cooldown?: number
   range?: number
   count?: number
+  eliteBossDamageMultiplier?: number
+  displayGlyph?: string
+  deathBurstRadius?: number
 }

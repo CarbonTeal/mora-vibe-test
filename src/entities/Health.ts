@@ -1,11 +1,22 @@
 export class Health {
-  readonly max: number
+  private maximum: number
   current: number
   isInvincible = false
 
   constructor(max: number) {
-    this.max = max
+    this.maximum = max
     this.current = max
+  }
+
+  get max(): number {
+    return this.maximum
+  }
+
+  setMax(max: number, healIncrease = false): void {
+    const next = Math.max(1, max)
+    const increase = next - this.maximum
+    this.maximum = next
+    this.current = Math.min(next, this.current + (healIncrease ? Math.max(0, increase) : 0))
   }
 
   get isDead(): boolean {

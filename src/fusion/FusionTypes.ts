@@ -26,4 +26,5 @@ export interface FusionCreatedEvent {
   resultSkillId: string
   displayName: string
   displayGlyph: string
+  sourceLabel: string
 }
