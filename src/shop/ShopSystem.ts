@@ -7,24 +7,39 @@ import { BuffRuntime } from './BuffRuntime.ts'
 import { getSkillDefinition } from '../skills/SkillRegistry.ts'
 import { getSkillGameplayTags } from './SkillGameplayTags.ts'
 import { WeaponType } from '../combat/WeaponDefinition.ts'
+import { SYNERGY_UPGRADES } from '../combat/SynergyUpgradeDefinition.ts'
+import { createSynergyShopBuff } from './synergyShopBuffs.ts'
 
 type ShopListener = () => void
 
 export class ShopSystem {
   readonly offers: BuffOffer[] = []
   readonly buffs: BuffRuntime
-  purchasesThisShop = 0
+  purchasesSinceLastReroll = 0
+  rerollCount = 0
   private readonly catalog: readonly BuffDefinition[]
   private readonly wallet: Wallet
   private readonly weapon: WeaponRuntime
   private readonly getEvolutionId: () => string
+  private readonly getRound: () => number
+  private readonly getEvolutionTier: () => 0 | 1 | 2
   private readonly listeners = new Set<ShopListener>()
 
-  constructor(catalog: readonly BuffDefinition[], wallet: Wallet, stats: PlayerStats, weapon: WeaponRuntime, getEvolutionId: () => string) {
+  constructor(
+    catalog: readonly BuffDefinition[],
+    wallet: Wallet,
+    stats: PlayerStats,
+    weapon: WeaponRuntime,
+    getEvolutionId: () => string,
+    getRound: () => number,
+    getEvolutionTier: () => 0 | 1 | 2,
+  ) {
     this.catalog = catalog
     this.wallet = wallet
     this.weapon = weapon
     this.getEvolutionId = getEvolutionId
+    this.getRound = getRound
+    this.getEvolutionTier = getEvolutionTier
     this.buffs = new BuffRuntime(stats, weapon)
   }
 
@@ -34,8 +49,29 @@ export class ShopSystem {
   }
 
   open(): void {
-    this.purchasesThisShop = 0
-    const eligible = this.catalog.filter((definition) => this.isEligible(definition))
+    this.rerollCount = 0
+    this.generateOffers()
+  }
+
+  reroll(): boolean {
+    if (!this.wallet.spend(this.rerollCost)) return false
+    this.rerollCount += 1
+    this.generateOffers()
+    return true
+  }
+
+  /** Debug-only shortcut: retains the official generation pipeline but skips the wallet charge. */
+  forceReroll(): void {
+    this.rerollCount += 1
+    this.generateOffers()
+  }
+
+  private generateOffers(): void {
+    this.purchasesSinceLastReroll = 0
+    const candidates = this.synergyPoolEnabled
+      ? [...this.catalog, ...SYNERGY_UPGRADES.map(createSynergyShopBuff)]
+      : this.catalog
+    const eligible = candidates.filter((definition) => this.isEligible(definition))
     this.offers.length = 0
     const pool = [...eligible]
     while (this.offers.length < GAME_CONFIG.shop.itemCount && pool.length > 0) {
@@ -54,21 +90,33 @@ export class ShopSystem {
 
   purchase(itemId: string): boolean {
     const offer = this.offers.find((candidate) => candidate.definition.id === itemId)
-    if (!offer || offer.purchased || this.purchasesThisShop >= GAME_CONFIG.shop.maxPurchasesPerShop) return false
+    if (!offer || offer.purchased || this.purchaseLimitReached) return false
     if (!this.buffs.canAcquire(offer.definition) || !this.wallet.spend(offer.definition.price)) return false
     if (!this.buffs.acquire(offer.definition)) return false
     offer.purchased = true
-    this.purchasesThisShop += 1
+    this.purchasesSinceLastReroll += 1
     this.emitChanged()
     return true
   }
 
-  get purchaseLimitReached(): boolean { return this.purchasesThisShop >= GAME_CONFIG.shop.maxPurchasesPerShop }
+  get purchaseLimitReached(): boolean { return this.purchasesSinceLastReroll >= GAME_CONFIG.shop.maxPurchasesPerShop }
+  get purchasesRemaining(): number { return Math.max(0, GAME_CONFIG.shop.maxPurchasesPerShop - this.purchasesSinceLastReroll) }
+  get rerollCost(): number { return GAME_CONFIG.shop.baseRerollCost * 2 ** this.rerollCount }
+  get synergyPoolEnabled(): boolean {
+    return this.getRound() >= GAME_CONFIG.shop.synergyUnlockRound &&
+      this.getEvolutionTier() === 2 && this.weapon.weaponType !== WeaponType.BasicAttack
+  }
+  get offerSources(): readonly string[] {
+    return this.offers.map((offer) => offer.definition.source ?? (offer.definition.requirements.some((requirement) => requirement.type === 'Weapon') ? 'Weapon' : 'Generic'))
+  }
 
   getWeight(definition: BuffDefinition): number {
     const preferred = this.preferredTags
     const matches = definition.tags.filter((tag) => preferred.has(tag)).length
-    return definition.weight * (1 + Math.min(2, matches) * (GAME_CONFIG.shop.recommendationMultiplier - 1))
+    const recommendationWeight = definition.weight * (1 + Math.min(2, matches) * (GAME_CONFIG.shop.recommendationMultiplier - 1))
+    return definition.source === 'Synergy'
+      ? recommendationWeight * GAME_CONFIG.shop.synergyOfferWeightMultiplier
+      : recommendationWeight
   }
 
   private isEligible(definition: BuffDefinition): boolean {

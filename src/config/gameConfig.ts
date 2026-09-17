@@ -18,11 +18,18 @@ export const GAME_CONFIG = {
     color: 0x66e3c4,
   },
   enemy: {
-    maxHp: 50,
+    maxHp: 30,
     moveSpeed: 2.2,
     radius: 0.55,
     color: 0xef476f,
-    xpReward: 20,
+    xpReward: 12,
+    rewards: {
+      Chaser: { xp: 12, money: 1 },
+      Runner: { xp: 10, money: 1 },
+      Shooter: { xp: 15, money: 2 },
+      Charger: { xp: 18, money: 2 },
+      ElementEnemy: { xp: 30, money: 3 },
+    },
     contactDamage: 10,
     contactInterval: 0.9,
     archetypes: {
@@ -63,6 +70,16 @@ export const GAME_CONFIG = {
       radialBurstCount: 8,
       sizeMultiplier: 1.25,
     },
+    healthRing: {
+      visibleDuration: 3,
+      innerRadius: 0.72,
+      outerRadius: 0.88,
+      worldHeight: 0.2,
+      segments: 48,
+      renderOrder: 1000,
+      backgroundColor: 0x11131a,
+      foregroundColor: 0xffdf4f,
+    },
     progression: {
       runnerUnlockRound: 3,
       shooterUnlockRound: 5,
@@ -75,7 +92,6 @@ export const GAME_CONFIG = {
     },
   },
   economy: {
-    normalEnemyMoney: 1,
     eliteMoneyMin: 3,
     eliteMoneyMax: 5,
     pickupRadius: 0.35,
@@ -83,9 +99,9 @@ export const GAME_CONFIG = {
     pickupMagnetSpeed: 12,
     pickupLifetime: 300,
     pickupColor: 0x4cff72,
-    estimatedEnemiesPerRound: 48,
-    targetClearRate: 0.68,
-    targetRoundIncome: 33,
+    estimatedEnemiesPerRound: 52,
+    targetClearRate: 0.75,
+    targetRoundIncome: 35,
     roundEndMoneyAutoCollectRatio: 0.5,
   },
   rounds: {
@@ -93,7 +109,7 @@ export const GAME_CONFIG = {
     normalRoundDuration: 60,
     plannedCount: 20,
     difficulty: {
-      enemyHpPerRound: 0.12,
+      enemyHpPerRound: 0.08,
       enemySpeedPerRound: 0.04,
       spawnRatePerRound: 0.08,
     },
@@ -104,11 +120,14 @@ export const GAME_CONFIG = {
     elementEnemySpawnDelaySeconds: 20,
     evolutionTutorialDurationSeconds: 4,
     enemySizeMultiplier: 1.35,
-    enemyHpMultiplier: 3,
+    enemyHpMultiplier: 8.3,
+    /** A small Round 5-only adjustment; other scheduled element rounds retain the base value. */
+    enemyHpMultiplierByRound: { 5: 0.88 } as Readonly<Record<number, number>>,
     enemySpeedMultiplier: 1.2,
     spawnDistance: 13,
     corePickupRadius: 1.25,
     coreLifetime: 180,
+    tier2ElementCoreMoneyValue: 10,
   },
   skills: {
     poisonStackCap: 5,
@@ -133,20 +152,20 @@ export const GAME_CONFIG = {
     referenceAttackInterval: 0.65,
     referenceRange: 10,
     basicAttack: {
-      damage: 20, attackInterval: 0.75, range: 9.5, projectileSpeed: 17,
+      damage: 30, attackInterval: 0.6, range: 12, projectileSpeed: 17,
       projectileCount: 1, spread: 0, pierce: 0, knockback: 0.2,
     },
     pistol: {
-      damage: 25, attackInterval: 0.65, range: 11, projectileSpeed: 18,
+      damage: 24, attackInterval: 0.62, range: 11, projectileSpeed: 18,
       projectileCount: 1, spread: 0.02, pierce: 1, knockback: 0.4,
     },
     smg: {
-      damage: 10, attackInterval: 0.18, range: 8.5, projectileSpeed: 21,
+      damage: 8, attackInterval: 0.16, range: 8.5, projectileSpeed: 21,
       projectileCount: 1, spread: 0.1, pierce: 0, knockback: 0.15,
     },
     shotgun: {
-      damage: 7, attackInterval: 1.05, range: 6.5, projectileSpeed: 16,
-      projectileCount: 3, spread: 0.52, pierce: 0, knockback: 1.2,
+      damage: 26, attackInterval: 0.9, range: 9, projectileSpeed: 16,
+      projectileCount: 3, spread: 0.35, pierce: 0, knockback: 1.35,
     },
     upgrades: {
       damageMultiplier: 1.2,
@@ -163,14 +182,19 @@ export const GAME_CONFIG = {
   shop: {
     itemCount: 3,
     maxPurchasesPerShop: 2,
-    prices: { Common: 17, Uncommon: 22, Rare: 29 },
+    prices: { Common: 16, Uncommon: 21, Rare: 27 },
     recommendationMultiplier: 1.75,
+    synergyUnlockRound: 6,
+    /** Makes one matching weapon/evolution offer likely without forcing it into every shop. */
+    synergyOfferWeightMultiplier: 10,
+    baseRerollCost: 10,
   },
   spawning: {
-    initialCount: 5,
+    roundStartSpawnGraceSeconds: 3,
     interval: 1.4,
-    minDistance: 11,
-    maxDistance: 16,
+    /** Deliberately outside the current top-down combat view; enemies run in from the edge. */
+    minDistance: 20,
+    maxDistance: 22,
     maxAlive: 40,
   },
   progression: {

@@ -3,6 +3,7 @@ import { GAME_CONFIG } from '../config/gameConfig.ts'
 type ValueOf<T> = T[keyof T]
 
 export const GameState = {
+  StartScreen: 'StartScreen',
   Combat: 'Combat',
   RoundEnd: 'RoundEnd',
   Shop: 'Shop',
@@ -21,7 +22,7 @@ type StateListener = (state: GameState) => void
 export class RoundSystem {
   currentRound = 1
   remainingTime: number = this.getRoundDuration(1)
-  state: GameState = GameState.Combat
+  state: GameState = GameState.StartScreen
   private readonly listeners = new Set<StateListener>()
 
   subscribe(listener: StateListener): () => void {
@@ -38,6 +39,16 @@ export class RoundSystem {
   startRound(): void {
     this.remainingTime = this.roundDuration
     this.setState(GameState.Combat)
+  }
+
+  beginRun(): void {
+    if (this.state !== GameState.StartScreen) return
+    this.currentRound = 1
+    this.startRound()
+  }
+
+  returnToStartScreen(): void {
+    this.setState(GameState.StartScreen)
   }
 
   endRound(): void {
@@ -67,6 +78,17 @@ export class RoundSystem {
   setRemainingTime(seconds: number): void {
     if (this.state !== GameState.Combat) return
     this.remainingTime = Math.max(0, Math.min(this.roundDuration, seconds))
+  }
+
+  /** Development-only time positioning for deterministic combat-delay checks. */
+  setCombatElapsed(seconds: number): void {
+    this.setRemainingTime(this.roundDuration - seconds)
+  }
+
+  /** Development-only round positioning. It deliberately does not change the current game state. */
+  forceRound(round: number): void {
+    this.currentRound = Math.max(1, Math.min(GAME_CONFIG.rounds.plannedCount, Math.floor(round)))
+    this.remainingTime = this.roundDuration
   }
 
   getDifficulty(): RoundDifficulty {

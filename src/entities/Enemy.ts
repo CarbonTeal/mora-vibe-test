@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { GAME_CONFIG } from '../config/gameConfig.ts'
 import { EliteModifier, EnemyArchetype, type EnemyProjectileEmitter } from './EnemyArchetype.ts'
 import { Health } from './Health.ts'
+import { WorldHealthRing } from '../ui/WorldHealthRing.ts'
 
 export interface EnemyTraits {
   radiusMultiplier?: number
@@ -10,6 +11,8 @@ export interface EnemyTraits {
   speedMultiplier?: number
   archetype?: EnemyArchetype
   eliteModifiers?: readonly EliteModifier[]
+  showHitHealthRing?: boolean
+  healthRingRadiusMultiplier?: number
 }
 
 type ChargeState = 'tracking' | 'windup' | 'charging' | 'cooldown'
@@ -31,6 +34,9 @@ export class Enemy {
   readonly eliteModifiers: readonly EliteModifier[]
   readonly isElite: boolean
   readonly moneyReward: number
+  readonly xpReward: number
+  readonly showHitHealthRing: boolean
+  private readonly healthRing?: WorldHealthRing
   private readonly baseSpeedMultiplier: number
   private contactCooldown = 0
   private attackCooldown = Math.random() * GAME_CONFIG.enemy.archetypes.shooter.attackInterval
@@ -48,13 +54,16 @@ export class Enemy {
     this.radius = GAME_CONFIG.enemy.radius * (traits.radiusMultiplier ?? 1) * eliteSize
     this.isPersistent = traits.persistent ?? false
     this.isSpecialEnemy = traits.special ?? false
+    this.showHitHealthRing = traits.showHitHealthRing ?? (this.isElite || this.isSpecialEnemy)
     this.baseSpeedMultiplier = (traits.speedMultiplier ?? 1) * this.getArchetypeSpeedMultiplier() *
       (this.eliteModifiers.includes(EliteModifier.Fast) ? GAME_CONFIG.enemy.elite.fastSpeedMultiplier : 1)
     const eliteHp = this.eliteModifiers.includes(EliteModifier.Tanky) ? GAME_CONFIG.enemy.elite.tankyHpMultiplier : 1
     this.health = new Health(Math.round(GAME_CONFIG.enemy.maxHp * hpMultiplier * this.getArchetypeHpMultiplier() * eliteHp))
+    const reward = this.isSpecialEnemy ? GAME_CONFIG.enemy.rewards.ElementEnemy : GAME_CONFIG.enemy.rewards[this.archetype]
     this.moneyReward = this.isElite
       ? THREE.MathUtils.randInt(GAME_CONFIG.economy.eliteMoneyMin, GAME_CONFIG.economy.eliteMoneyMax)
-      : GAME_CONFIG.economy.normalEnemyMoney
+      : reward.money
+    this.xpReward = reward.xp
     if (this.archetype === EnemyArchetype.Charger) {
       this.chargeTimer = GAME_CONFIG.enemy.archetypes.charger.trackingDuration * (0.75 + Math.random() * 0.5)
     }
@@ -71,6 +80,9 @@ export class Enemy {
     this.object.position.copy(position).setY(0.525 * eliteSize)
     this.object.scale.setScalar(eliteSize)
     this.object.castShadow = true
+    if (this.showHitHealthRing) {
+      this.healthRing = new WorldHealthRing(this.object, this.health, traits.healthRingRadiusMultiplier ?? 1)
+    }
   }
 
   update(delta: number, playerPosition: THREE.Vector3, speedMultiplier = 1, attackRateMultiplier = 1, emitProjectile: EnemyProjectileEmitter = () => undefined): void {
@@ -93,6 +105,7 @@ export class Enemy {
         }
       }
     }
+    this.healthRing?.update(delta, this.object)
   }
 
   get canDealContactDamage(): boolean { return this.contactCooldown <= 0 }
@@ -102,6 +115,10 @@ export class Enemy {
   }
 
   dispose(): void {
+    if (this.healthRing) {
+      this.object.remove(this.healthRing.object)
+      this.healthRing.dispose()
+    }
     this.object.geometry.dispose()
     this.object.material.dispose()
   }

@@ -13,6 +13,12 @@ const debugMarkup = import.meta.env.DEV ? '<aside id="debug-panel" class="debug-
 app.innerHTML = `
   <main class="game-shell">
     <canvas id="game-canvas" aria-label="3D roguelike game"></canvas>
+    <section id="start-screen" class="start-screen" aria-label="Start game">
+      <div class="start-screen__card">
+        <h1>元素魔导士</h1>
+        <button id="start-game" type="button">开始游戏</button>
+      </div>
+    </section>
     <section class="hud" aria-live="polite">
       <div class="hud__title">Mora Prototype</div>
       <div class="hud__stats">
@@ -118,7 +124,10 @@ const game = new Game(canvas, {
   },
   shopRoot: document.querySelector<HTMLElement>('#shop-panel')!,
   combatFeedback: document.querySelector<HTMLElement>('#combat-feedback')!,
+  startScreen: document.querySelector<HTMLElement>('#start-screen')!,
 })
+
+document.querySelector<HTMLButtonElement>('#start-game')!.addEventListener('click', () => game.beginRun())
 
 const debugRoot = document.querySelector<HTMLElement>('#debug-panel')
 const debugPanel = import.meta.env.DEV && debugRoot

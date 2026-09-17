@@ -579,7 +579,7 @@ export class SkillRuntime {
   }
 
   private grantDefeatReward(enemy: Enemy, definition: SkillDefinition, player: Player): void {
-    player.gainExperience(GAME_CONFIG.enemy.xpReward)
+    player.gainExperience(enemy.xpReward)
     this.onEnemyDefeated()
     if (definition.deathBurstRadius && !this.deathBurstProcessed.has(enemy.object.uuid)) {
       this.deathBurstProcessed.add(enemy.object.uuid)

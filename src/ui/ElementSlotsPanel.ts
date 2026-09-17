@@ -50,9 +50,10 @@ export class ElementSlotsPanel {
     const second = inventory.pending2?.element
     const pending = inventory.pendingElement?.element
     const specialAvailable = inventory.specialFusionAvailable
+    const elementPickupLocked = state.currentEvolution?.tier === 2
 
     this.elements.current.textContent = state.currentEvolution?.glyph ?? '—'
-    this.elements.pendingRoot.hidden = !first
+    this.elements.pendingRoot.hidden = !first || elementPickupLocked
     this.elements.slot1.textContent = first ? ELEMENT_PRESENTATION[first].glyph : ''
     this.elements.slot2.hidden = !second
     this.elements.link.hidden = !second
@@ -60,11 +61,11 @@ export class ElementSlotsPanel {
     this.elements.slot1.style.setProperty('--element-color', first ? `#${ELEMENT_PRESENTATION[first].color.toString(16).padStart(6, '0')}` : '#75858a')
     this.elements.slot2.style.setProperty('--element-color', second ? `#${ELEMENT_PRESENTATION[second].color.toString(16).padStart(6, '0')}` : '#75858a')
     this.elements.root.classList.toggle('element-slots--rare', specialAvailable)
-    this.elements.root.classList.toggle('element-slots--pending', Boolean(first))
-    this.elements.ready.hidden = !specialAvailable
-    this.elements.evolveHint.hidden = !first
+    this.elements.root.classList.toggle('element-slots--pending', Boolean(first) && !elementPickupLocked)
+    this.elements.ready.hidden = !specialAvailable || elementPickupLocked
+    this.elements.evolveHint.hidden = !first || elementPickupLocked
     this.elements.evolveHint.textContent = specialAvailable ? 'E · 特殊进化' : 'E · 进化'
-    this.elements.evolveButton.disabled = !first || Boolean(pending)
+    this.elements.evolveButton.disabled = !first || Boolean(pending) || elementPickupLocked
 
     this.elements.choiceRoot.hidden = !pending
     if (pending) {

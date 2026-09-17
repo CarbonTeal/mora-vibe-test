@@ -17,6 +17,7 @@ export class ElementEnemy extends Enemy {
       persistent: true,
       special: true,
       speedMultiplier: GAME_CONFIG.elements.enemySpeedMultiplier,
+      healthRingRadiusMultiplier: 1.12,
     })
     this.elementType = elementType
     const presentation = ELEMENT_PRESENTATION[elementType]

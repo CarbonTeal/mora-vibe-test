@@ -18,6 +18,9 @@ export class DebugPanel {
       <div class="debug-panel__header">DEBUG</div>
       <pre class="debug-panel__state" data-debug-state></pre>
       <div class="debug-panel__group">
+        <button type="button" data-action="return-start">Return to Start Screen</button>
+      </div>
+      <div class="debug-panel__group">
         <strong>FORCE EVOLUTION (6 T1 + 45 T2)</strong>
         <select data-skill-select>
           ${skillOptions.map((skill) => `<option value="${skill.id}">T${skill.tier} · ${skill.name}</option>`).join('')}
@@ -33,9 +36,13 @@ export class DebugPanel {
         `).join('')}
       </div>
       <div class="debug-panel__group">
-        <button type="button" data-core="Fire">Give Fire Core</button>
-        <button type="button" data-core="Earth">Give Earth Core</button>
-        <button type="button" data-core="Water">Give Water Core</button>
+        <button type="button" data-core="Fire">Spawn Fire Core</button>
+        <button type="button" data-core="Earth">Spawn Earth Core</button>
+        <button type="button" data-core="Water">Spawn Water Core</button>
+        <button type="button" data-ground-core="Fire">Spawn Fire ElementCore</button>
+        <button type="button" data-force-tier="element-fire">Force Tier1 Fire</button>
+        <button type="button" data-force-tier="explosion">Force Tier2 Explosion</button>
+        <button type="button" data-force-tier="star">Force Tier2 Star</button>
         <button type="button" data-action="clear-pending">Clear Pending Elements</button>
         <button type="button" data-action="clear-evolution">Clear Current Evolution</button>
       </div>
@@ -50,20 +57,27 @@ export class DebugPanel {
         <button type="button" data-action="force-next">Force Next Round</button>
       </div>
       <div class="debug-panel__group debug-panel__group--grid">
+        <button type="button" data-action="chaser">Spawn Chaser</button>
         <button type="button" data-action="runner">Spawn Runner</button>
         <button type="button" data-action="shooter">Spawn Shooter</button>
         <button type="button" data-action="charger">Spawn Charger</button>
         <button type="button" data-action="elite-shooter">Spawn Elite Shooter</button>
         <button type="button" data-action="elite-charger">Spawn Elite Charger</button>
+        <button type="button" data-action="elite-chaser">Spawn Elite Chaser</button>
         <button type="button" data-action="radial-elite">Spawn RadialBurst Elite</button>
         <button type="button" data-action="armor">Give Armor</button>
         <button type="button" data-action="dodge">Give Dodge</button>
         <button type="button" data-action="regen">Give HP Regen</button>
         <button type="button" data-action="pickup-range">Give Pickup Range</button>
         <button type="button" data-action="spawn-money">Spawn 20 Money</button>
-        <button type="button" data-action="spawn-money-10">Spawn MoneyPickup ×10</button>
+        <button type="button" data-action="spawn-money-near-10">Spawn nearby MoneyPickup ×10</button>
+        <button type="button" data-action="spawn-money-10">Spawn uncollected MoneyPickup ×10</button>
+        <button type="button" data-action="spawn-money-7">Spawn uncollected MoneyPickup ×7</button>
         <button type="button" data-action="timer-5">Set Round Timer to 5 sec</button>
         <button type="button" data-action="reset-evolution-tutorial">Reset Evolution Tutorial</button>
+        <button type="button" data-action="force-round-6">Force Round 6</button>
+        <button type="button" data-action="refresh-shop">Refresh Shop</button>
+        <button type="button" data-action="force-reroll">Force Reroll</button>
       </div>
       <div class="debug-panel__group">
         <strong>WEAPON</strong>
@@ -84,6 +98,7 @@ export class DebugPanel {
       </div>
       <div class="debug-panel__group debug-panel__group--grid">
         <button type="button" data-action="trigger-element-schedule">Trigger Scheduled Element Spawn</button>
+        <button type="button" data-action="element-delay-test">Force Element Spawn Delay test</button>
       </div>
     `
     this.root.addEventListener('click', this.onClick)
@@ -109,6 +124,9 @@ export class DebugPanel {
         `Level / XP: ${state.level} / ${state.xp} / ${state.xpForNextLevel}`,
         `Invincible: ${state.invincible ? 'ON' : 'OFF'}`,
         `Current Evolution: ${state.currentEvolution || 'None'}`,
+        `Evolution Tier: ${state.evolutionTier}`,
+        `Element Pickup: ${state.elementPickupLocked ? 'LOCKED' : 'ENABLED'}`,
+        `Pending Elements: ${[state.pending1, state.pending2].filter(Boolean).join(' + ') || 'Empty'}`,
         `Pending 1: ${state.pending1 || 'Empty'}`,
         `Pending 2: ${state.pending2 || 'Empty'}`,
         `Special Fusion Available: ${state.specialFusionAvailable ? 'YES' : 'NO'}`,
@@ -118,7 +136,7 @@ export class DebugPanel {
         `Last Fusion: ${state.recentFusion || 'None'}`,
         `Tester Skill: ${state.testerSkill || 'None'}`,
         `Runtime Objects: ${state.runtimeObjects}`,
-        `Player HP: ${state.playerHp.toFixed(1)} / ${state.playerMaxHp.toFixed(1)}`,
+        `Player HP: ${Math.ceil(state.playerHp)} / ${Math.ceil(state.playerMaxHp)}`,
         `Armor: ${state.armor.toFixed(1)}`,
         `Dodge: ${(state.dodgeChance * 100).toFixed(0)}%`,
         `HP Regen: ${state.hpRegenPerSecond.toFixed(1)}/s`,
@@ -138,6 +156,27 @@ export class DebugPanel {
         `Element Spawn Triggered: ${state.elementSpawnTriggered ? 'YES' : 'NO'}`,
         `Evolution Tutorial Shown: ${state.evolutionTutorialShown ? 'YES' : 'NO'}`,
         `Queued Element Cores: ${state.queuedElementCoreCount}`,
+        `Synergy Pool Enabled: ${state.synergyPoolEnabled ? 'YES' : 'NO'}`,
+        `Shop Offer Sources: ${state.shopOfferSources.join(' | ') || 'None'}`,
+        `Reroll Count: ${state.rerollCount}`,
+        `Reroll Cost: $${state.rerollCost}`,
+        `Purchases Since Reroll: ${state.purchasesSinceLastReroll}`,
+        `ElementCore Mode: ${state.elementCoreMode}`,
+        `Tier2 Core Value: $${state.tier2ElementCoreMoneyValue}`,
+        '',
+        'ROUND STATS',
+        `Enemies Spawned: ${state.roundStats.enemiesSpawned}`,
+        `Enemies Killed: ${state.roundStats.enemiesKilled}`,
+        `Kill Rate: ${(state.roundStats.killRate * 100).toFixed(0)}%`,
+        `Damage Dealt: ${Math.round(state.roundStats.damageDealt)}`,
+        `Money Spawned: ${state.roundStats.moneySpawned}`,
+        `Money Manually Collected: ${state.roundStats.moneyManuallyCollected}`,
+        `Money Auto Collected: ${state.roundStats.moneyAutoCollected}`,
+        `Money Lost: ${state.roundStats.moneyLost}`,
+        `Money Earned This Round: ${state.roundStats.moneyEarned}`,
+        `Element Enemies Killed: ${state.roundStats.elementEnemiesKilled}`,
+        `Elites Killed: ${state.roundStats.elitesKilled}`,
+        `Current Wallet: ${state.money}`,
       ].join('\n')
     }
     const select = this.root.querySelector<HTMLSelectElement>('[data-skill-select]')
@@ -155,6 +194,10 @@ export class DebugPanel {
     }
     const core = target.dataset.core as ElementValue | undefined
     if (core) { this.actions.giveElementCore(core); return }
+    const groundCore = target.dataset.groundCore as ElementValue | undefined
+    if (groundCore) { this.actions.spawnElementCore(groundCore); return }
+    const forceTier = target.dataset.forceTier
+    if (forceTier) { this.actions.forceEvolution(forceTier); return }
     const weapon = target.dataset.weapon as typeof WeaponType[keyof typeof WeaponType] | undefined
     if (weapon) { this.actions.equipWeapon(weapon); return }
     const quickUpgrade = target.dataset.quickUpgrade
@@ -183,19 +226,27 @@ export class DebugPanel {
       case 'previous-skill': this.actions.previousSkill(); break
       case 'next-skill': this.actions.nextSkill(); break
       case 'runner': this.actions.spawnEnemy(EnemyArchetype.Runner); break
+      case 'chaser': this.actions.spawnEnemy(EnemyArchetype.Chaser); break
       case 'shooter': this.actions.spawnEnemy(EnemyArchetype.Shooter); break
       case 'charger': this.actions.spawnEnemy(EnemyArchetype.Charger); break
       case 'elite-shooter': this.actions.spawnEnemy(EnemyArchetype.Shooter, [EliteModifier.MultiShot, EliteModifier.RapidFire]); break
       case 'elite-charger': this.actions.spawnEnemy(EnemyArchetype.Charger, [EliteModifier.Fast]); break
+      case 'elite-chaser': this.actions.spawnEnemy(EnemyArchetype.Chaser, [EliteModifier.Tanky]); break
       case 'radial-elite': this.actions.spawnEnemy(EnemyArchetype.Chaser, [EliteModifier.RadialBurst, EliteModifier.Tanky]); break
       case 'armor': this.actions.giveArmor(); break
       case 'dodge': this.actions.giveDodge(); break
       case 'regen': this.actions.giveHpRegen(); break
       case 'pickup-range': this.actions.givePickupRange(); break
       case 'spawn-money': this.actions.spawnMoney(20); break
+      case 'spawn-money-near-10': this.actions.spawnMoney(10); break
       case 'spawn-money-10': this.actions.spawnUncollectedMoney(10); break
+      case 'spawn-money-7': this.actions.spawnUncollectedMoney(7); break
       case 'timer-5': this.actions.setRoundTimerToFive(); break
       case 'reset-evolution-tutorial': this.actions.resetEvolutionTutorial(); break
+      case 'force-round-6': this.actions.forceRound(6); break
+      case 'refresh-shop': this.actions.refreshShop(); break
+      case 'force-reroll': this.actions.forceReroll(); break
+      case 'return-start': this.actions.returnToStartScreen(); break
       case 'apply-weapon-upgrade': {
         const select = this.root.querySelector<HTMLSelectElement>('[data-weapon-upgrade-select]')
         if (select) this.actions.applyWeaponUpgrade(select.value)
@@ -207,6 +258,7 @@ export class DebugPanel {
         break
       }
       case 'trigger-element-schedule': this.actions.triggerScheduledElementSpawn(); break
+      case 'element-delay-test': this.actions.forceElementSpawnDelayTest(); break
     }
   }
 

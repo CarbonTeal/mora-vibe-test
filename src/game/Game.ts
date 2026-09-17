@@ -28,6 +28,7 @@ import { FusionFeedback, type FusionFeedbackElements } from '../ui/FusionFeedbac
 import { ElementSlotsPanel, type ElementSlotsElements } from '../ui/ElementSlotsPanel.ts'
 import { MoneyPickupSystem } from '../systems/MoneyPickupSystem.ts'
 import { CombatFeedback } from '../ui/CombatFeedback.ts'
+import { RoundCombatStats } from '../debug/RoundCombatStats.ts'
 import { WeaponRuntime } from '../combat/WeaponRuntime.ts'
 import { WEAPON_UPGRADES } from '../combat/WeaponUpgradeDefinition.ts'
 import { SYNERGY_UPGRADES } from '../combat/SynergyUpgradeDefinition.ts'
@@ -38,6 +39,7 @@ export interface GameUiElements {
   elementSlots: ElementSlotsElements
   shopRoot: HTMLElement
   combatFeedback: HTMLElement
+  startScreen: HTMLElement
 }
 
 export class Game {
@@ -53,6 +55,7 @@ export class Game {
   private readonly fusionResolver = new FusionResolver(FUSION_RECIPES, this.fusionEvents)
   private readonly build = new ElementBuildSystem(this.fusionEvents)
   private readonly evolution = new EvolutionSystem(this.build, this.fusionResolver)
+  private readonly roundStats = new RoundCombatStats()
   private readonly enemySystem: EnemySystem
   private readonly elementEnemyDirector: ElementEnemyDirector
   private readonly elementCoreSystem: ElementCoreSystem
@@ -66,6 +69,7 @@ export class Game {
   private readonly fusionFeedback: FusionFeedback
   private readonly elementSlotsPanel: ElementSlotsPanel
   private readonly combatFeedback: CombatFeedback
+  private readonly startScreen: HTMLElement
   private readonly unsubscribeFusionSkill: () => void
   private readonly unsubscribeRound: () => void
   private animationFrame = 0
@@ -89,19 +93,33 @@ export class Game {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
 
     this.initialSkillDefinitions = resolveDebugSkillLoadout(window.location.search)
-    this.enemySystem = new EnemySystem(this.scene)
+    this.enemySystem = new EnemySystem(this.scene, (enemy) => {
+      this.roundStats.recordEnemySpawned()
+      enemy.health.onDamage = (amount) => this.roundStats.recordDamage(amount)
+    })
     this.elementEnemyDirector = new ElementEnemyDirector(this.enemySystem)
     this.elementCoreSystem = new ElementCoreSystem(this.scene, (element) => {
-      this.build.pickupElement(element)
+      const result = this.build.pickupElement(element)
+      if (result === 'converted') {
+        const value = GAME_CONFIG.elements.tier2ElementCoreMoneyValue
+        this.wallet.add(value)
+        this.combatFeedback?.showElementConverted(value)
+        return true
+      }
       this.elementSlotsPanel?.notifyElementPickup(element)
+      return true
     })
-    this.moneyPickupSystem = new MoneyPickupSystem(this.scene)
+    this.moneyPickupSystem = new MoneyPickupSystem(this.scene, {
+      onManualCollected: (amount) => this.roundStats.recordManualCollection(amount),
+      onRoundEndCollected: (total, collected) => this.roundStats.recordRoundEndCollection(total, collected),
+    })
     this.skillRuntime = new SkillRuntime(
       this.scene,
       this.initialSkillDefinitions,
       this.weaponRuntime,
     )
     this.combatFeedback = new CombatFeedback(ui.combatFeedback)
+    this.startScreen = ui.startScreen
     this.player.damageReceiver.onDodge = () => this.combatFeedback.showDodge()
     this.hudSystem = new HudSystem(ui.hud)
     this.shopSystem = new ShopSystem(
@@ -110,6 +128,8 @@ export class Game {
       this.player.stats,
       this.weaponRuntime,
       () => this.build.state.currentEvolution?.id ?? '',
+      () => this.rounds.currentRound,
+      () => this.build.evolutionTier,
     )
     this.shopPanel = new ShopPanel(
       ui.shopRoot,
@@ -138,13 +158,17 @@ export class Game {
     this.scene.add(this.player.object)
     this.snapCameraToPlayer()
     this.resize()
-    this.rounds.startRound()
+    this.enemySystem.setSpawningEnabled(false)
     this.updateHud()
     window.addEventListener('resize', this.resize)
   }
 
   start(): void {
     this.animationFrame = requestAnimationFrame(this.tick)
+  }
+
+  beginRun(): void {
+    this.rounds.beginRun()
   }
 
   getDebugActions(): DebugActions {
@@ -154,6 +178,12 @@ export class Game {
       },
       giveElementCore: (element: ElementType) => {
         this.elementCoreSystem.spawn(element, this.player.object.position)
+      },
+      spawnElementCore: (element: ElementType) => {
+        this.elementCoreSystem.spawn(
+          element,
+          this.player.object.position.clone().add(new THREE.Vector3(7, 0, 0)),
+        )
       },
       clearPendingElements: () => this.build.clearPendingElements(),
       clearCurrentEvolution: () => {
@@ -189,8 +219,15 @@ export class Game {
       triggerScheduledElementSpawn: () => {
         this.elementEnemyDirector.triggerScheduledSpawn(this.rounds.currentRound, this.player.object.position)
       },
+      forceElementSpawnDelayTest: () => {
+        this.rounds.setCombatElapsed(GAME_CONFIG.elements.elementEnemySpawnDelaySeconds - 1)
+      },
       setRoundTimerToFive: () => this.rounds.setRemainingTime(5),
       resetEvolutionTutorial: () => this.elementSlotsPanel.resetTutorial(),
+      forceRound: (round) => this.forceRoundForDebug(round),
+      refreshShop: () => this.shopSystem.open(),
+      forceReroll: () => this.shopSystem.forceReroll(),
+      returnToStartScreen: () => this.returnToStartScreen(),
       toggleInvincible: () => {
         this.player.health.isInvincible = !this.player.health.isInvincible
       },
@@ -273,21 +310,27 @@ export class Game {
 
   private readonly onRoundStateChanged = (state: GameState): void => {
     switch (state) {
+      case GameState.StartScreen:
+        this.enemySystem.setSpawningEnabled(false)
+        this.shopPanel.hide()
+        this.startScreen.hidden = false
+        break
       case GameState.Combat:
+        this.startScreen.hidden = true
+        this.resetCombatRoundState()
+        this.roundStats.reset()
         this.shopPanel.hide()
         this.enemySystem.setDifficulty(this.rounds.getDifficulty())
         this.enemySystem.setRound(this.rounds.currentRound)
         this.enemySystem.setSpawningEnabled(true)
         this.elementEnemyDirector.onRoundStarted(this.rounds.currentRound)
-        if (!this.enemySystem.enemies.some((enemy) => !enemy.isPersistent)) {
-          this.enemySystem.spawnInitialWave(this.player.object.position)
-        }
         break
       case GameState.RoundEnd:
         this.enemySystem.setSpawningEnabled(false)
         this.skillRuntime.clearCombatState()
         this.enemySystem.clearNormalEnemies()
-        this.elementCoreSystem.collectAll()
+        if (this.build.canPickupElementCore) this.elementCoreSystem.collectAll()
+        else this.elementCoreSystem.discardAll()
         const recovered = this.moneyPickupSystem.collectAtRoundEnd(
           this.wallet,
           GAME_CONFIG.economy.roundEndMoneyAutoCollectRatio,
@@ -359,6 +402,20 @@ export class Game {
       elementSpawnTriggered: this.elementEnemyDirector.hasTriggeredThisRound,
       evolutionTutorialShown: this.elementSlotsPanel.hasShownEvolutionTutorial,
       queuedElementCoreCount: this.build.queuedElementCoreCount,
+      evolutionTier: this.build.evolutionTier,
+      elementPickupLocked: !this.build.canPickupElementCore,
+      synergyPoolEnabled: this.shopSystem.synergyPoolEnabled,
+      shopOfferSources: this.shopSystem.offerSources,
+      rerollCount: this.shopSystem.rerollCount,
+      rerollCost: this.shopSystem.rerollCost,
+      purchasesSinceLastReroll: this.shopSystem.purchasesSinceLastReroll,
+      elementCoreMode: this.build.elementCoreMode,
+      tier2ElementCoreMoneyValue: GAME_CONFIG.elements.tier2ElementCoreMoneyValue,
+      roundStats: {
+        ...this.roundStats.current,
+        killRate: this.roundStats.killRate,
+        moneyEarned: this.roundStats.moneyEarned,
+      },
     }
   }
 
@@ -380,6 +437,27 @@ export class Game {
     if (this.rounds.state === GameState.Shop && (this.rounds.currentRound !== 1 || this.hasSelectedStarterWeapon)) {
       this.rounds.startNextRound()
     }
+  }
+
+  private forceRoundForDebug(round: number): void {
+    this.rounds.forceRound(round)
+    this.enemySystem.setDifficulty(this.rounds.getDifficulty())
+    this.enemySystem.setRound(this.rounds.currentRound)
+    this.shopSystem.open()
+  }
+
+  /** The sole Combat-entry reset point. It deliberately leaves long-term build state intact. */
+  private resetCombatRoundState(): void {
+    this.input.clearMovement()
+    this.player.resetCombatPosition()
+    this.snapCameraToPlayer()
+    this.skillRuntime.clearCombatState()
+    this.enemySystem.clearAll()
+  }
+
+  private returnToStartScreen(): void {
+    this.enemySystem.setSpawningEnabled(false)
+    this.rounds.returnToStartScreen()
   }
 
   private forceEvolution(skillId: string): void {
@@ -404,7 +482,9 @@ export class Game {
       if (enemy instanceof ElementEnemy) {
         this.skillRuntime.finalizeSpecialDefeat(enemy, this.player, true)
       }
+      this.roundStats.recordEnemyKilled(enemy)
       this.moneyPickupSystem.spawn(enemy.object.position, enemy.moneyReward)
+      this.roundStats.recordMoneySpawned(enemy.moneyReward)
       if (enemy instanceof ElementEnemy) {
         this.elementCoreSystem.spawn(enemy.elementType, enemy.object.position)
       }

@@ -19,6 +19,8 @@ export class InputSystem {
     return direction.lengthSq() > 0 ? direction.normalize() : direction
   }
 
+  clearMovement(): void { this.pressed.clear() }
+
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown)
     window.removeEventListener('keyup', this.onKeyUp)

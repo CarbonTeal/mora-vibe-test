@@ -30,7 +30,7 @@ export class HudSystem {
     rounds: RoundSystem,
     wallet: Wallet,
   ): void {
-    this.elements.health.textContent = `HP ${player.health.current} / ${player.health.max}`
+    this.elements.health.textContent = `HP ${Math.ceil(player.health.current)} / ${Math.ceil(player.health.max)}`
     this.elements.level.textContent = `Level ${player.level}`
     this.elements.xp.textContent = `XP ${player.xp} / ${player.xpForNextLevel}`
     this.elements.enemies.textContent = `Enemies ${enemies.length}`

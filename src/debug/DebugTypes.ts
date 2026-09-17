@@ -46,6 +46,28 @@ export interface DebugSnapshot {
   elementSpawnTriggered: boolean
   evolutionTutorialShown: boolean
   queuedElementCoreCount: number
+  evolutionTier: 0 | 1 | 2
+  elementPickupLocked: boolean
+  synergyPoolEnabled: boolean
+  shopOfferSources: readonly string[]
+  rerollCount: number
+  rerollCost: number
+  purchasesSinceLastReroll: number
+  elementCoreMode: 'Evolution' | 'MoneyConversion'
+  tier2ElementCoreMoneyValue: number
+  roundStats: {
+    enemiesSpawned: number
+    enemiesKilled: number
+    killRate: number
+    damageDealt: number
+    moneySpawned: number
+    moneyManuallyCollected: number
+    moneyAutoCollected: number
+    moneyLost: number
+    moneyEarned: number
+    elementEnemiesKilled: number
+    elitesKilled: number
+  }
 }
 
 export interface DebugSkillOption { id: string; name: string; tier: number }
@@ -53,6 +75,7 @@ export interface DebugSkillOption { id: string; name: string; tier: number }
 export interface DebugActions {
   spawnElementEnemy: (element: ElementType) => void
   giveElementCore: (element: ElementType) => void
+  spawnElementCore: (element: ElementType) => void
   clearPendingElements: () => void
   clearCurrentEvolution: () => void
   giveXp: (amount: number) => void
@@ -69,8 +92,12 @@ export interface DebugActions {
   applyWeaponUpgrade: (upgradeId: string) => void
   applySynergyUpgrade: (upgradeId: string) => void
   triggerScheduledElementSpawn: () => void
+  forceElementSpawnDelayTest: () => void
   setRoundTimerToFive: () => void
   resetEvolutionTutorial: () => void
+  forceRound: (round: number) => void
+  refreshShop: () => void
+  forceReroll: () => void
   toggleInvincible: () => void
   killAllEnemies: () => void
   skipToRoundEnd: () => void
@@ -78,6 +105,7 @@ export interface DebugActions {
   forceEvolution: (skillId: string) => void
   nextSkill: () => void
   previousSkill: () => void
+  returnToStartScreen: () => void
   getSkillOptions: () => readonly DebugSkillOption[]
   getWeaponUpgradeOptions: () => readonly { id: string; name: string }[]
   getSynergyUpgradeOptions: () => readonly { id: string; name: string }[]

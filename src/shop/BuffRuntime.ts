@@ -14,10 +14,14 @@ export class BuffRuntime {
   }
 
   getStackCount(id: string): number { return this.stacks.get(id) ?? 0 }
-  canAcquire(definition: BuffDefinition): boolean { return this.getStackCount(definition.id) < definition.maxStacks }
+  canAcquire(definition: BuffDefinition): boolean {
+    if (this.getStackCount(definition.id) >= definition.maxStacks) return false
+    return !definition.synergyUpgrade || this.weapon.synergy.canApply(definition.synergyUpgrade) && !this.weapon.synergy.hasUpgrade(definition.synergyUpgrade.id)
+  }
 
   acquire(definition: BuffDefinition): boolean {
     if (!this.canAcquire(definition)) return false
+    if (definition.synergyUpgrade && !this.weapon.applySynergyUpgrade(definition.synergyUpgrade)) return false
     for (const modifier of definition.statModifiers) this.applyModifier(modifier)
     this.stacks.set(definition.id, this.getStackCount(definition.id) + 1)
     this.definitions.set(definition.id, definition)

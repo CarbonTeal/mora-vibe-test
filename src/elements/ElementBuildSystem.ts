@@ -3,6 +3,7 @@ import { BuildState } from './BuildState.ts'
 import type { ElementDiscardChoice, ElementPickupResult } from './ElementInventory.ts'
 import type { ElementType } from './ElementType.ts'
 import type { SkillDefinition } from '../skills/SkillDefinition.ts'
+import { getEvolutionTier } from './BuildState.ts'
 
 export class ElementBuildSystem {
   readonly state = new BuildState()
@@ -14,6 +15,7 @@ export class ElementBuildSystem {
   }
 
   pickupElement(element: ElementType): ElementPickupResult {
+    if (!this.canPickupElementCore) return 'converted'
     if (this.state.elements.pendingElement) {
       this.queuedElementCores.push(element)
       return 'queued'
@@ -45,6 +47,11 @@ export class ElementBuildSystem {
   }
 
   get queuedElementCoreCount(): number { return this.queuedElementCores.length }
+  get evolutionTier(): 0 | 1 | 2 { return getEvolutionTier(this.state.currentEvolution) }
+  get canPickupElementCore(): boolean { return this.evolutionTier < 2 }
+  get elementCoreMode(): 'Evolution' | 'MoneyConversion' {
+    return this.canPickupElementCore ? 'Evolution' : 'MoneyConversion'
+  }
 
   dispose(): void {
     this.unsubscribe()

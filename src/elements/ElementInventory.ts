@@ -6,7 +6,7 @@ export interface PendingElementEntry {
 }
 
 export type ElementDiscardChoice = 'pending1' | 'pending2' | 'incoming'
-export type ElementPickupResult = 'added' | 'choice-required' | 'queued'
+export type ElementPickupResult = 'added' | 'choice-required' | 'queued' | 'converted'
 
 export class ElementInventory {
   private readonly entries: PendingElementEntry[] = []

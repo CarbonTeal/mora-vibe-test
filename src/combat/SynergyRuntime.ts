@@ -24,6 +24,8 @@ export class SynergyRuntime {
     return definition.requirements.weaponType === this.weaponType && definition.requirements.evolutionId === this.evolutionId
   }
 
+  hasUpgrade(id: string): boolean { return this.acquired.has(id) }
+
   applyUpgrade(definition: SynergyUpgradeDefinition): boolean {
     if (!this.canApply(definition) || this.acquired.has(definition.id)) return false
     this.acquired.set(definition.id, definition)

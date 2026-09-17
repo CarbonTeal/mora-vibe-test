@@ -6,11 +6,11 @@ import type { ElementType } from '../elements/ElementType.ts'
 export class ElementCoreSystem {
   readonly cores: ElementCore[] = []
   private readonly scene: THREE.Scene
-  private readonly onPickup: (element: ElementType) => void
+  private readonly onPickup: (element: ElementType) => boolean
 
   constructor(
     scene: THREE.Scene,
-    onPickup: (element: ElementType) => void,
+    onPickup: (element: ElementType) => boolean,
   ) {
     this.scene = scene
     this.onPickup = onPickup
@@ -28,9 +28,9 @@ export class ElementCoreSystem {
       const core = this.cores[index]
       core.update(delta)
       const distance = core.object.position.distanceTo(player.object.position)
-      if (allowPickup && distance <= core.pickupRadius + player.radius) {
-        this.onPickup(core.elementType)
-        this.remove(index)
+      if (allowPickup && core.canAttemptPickup && distance <= core.pickupRadius + player.radius) {
+        if (this.onPickup(core.elementType)) this.remove(index)
+        else core.rejectPickup()
         return
       } else if (core.isExpired) {
         this.remove(index)
@@ -43,13 +43,16 @@ export class ElementCoreSystem {
     for (let index = this.cores.length - 1; index >= 0; index -= 1) {
       const element = this.cores[index].elementType
       collected.push(element)
-      this.onPickup(element)
-      this.remove(index)
+      if (this.onPickup(element)) this.remove(index)
     }
     return collected
   }
 
   dispose(): void {
+    while (this.cores.length > 0) this.remove(this.cores.length - 1)
+  }
+
+  discardAll(): void {
     while (this.cores.length > 0) this.remove(this.cores.length - 1)
   }
 

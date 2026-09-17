@@ -12,6 +12,7 @@ export class ElementCore {
   private readonly glyph: THREE.Sprite
   private remaining = GAME_CONFIG.elements.coreLifetime
   private elapsed = 0
+  private rejectedCooldown = 0
 
   constructor(elementType: ElementType, position: THREE.Vector3) {
     this.elementType = elementType
@@ -47,9 +48,16 @@ export class ElementCore {
     this.core.rotation.y += delta * 1.8
     this.core.position.y = 0.72 + Math.sin(this.elapsed * 3) * 0.12
     this.ring.rotation.z += delta
+    this.rejectedCooldown = Math.max(0, this.rejectedCooldown - delta)
+    this.core.material.emissiveIntensity = this.rejectedCooldown > 0 ? 2.2 : 1.2
   }
 
   get isExpired(): boolean { return this.remaining <= 0 }
+  get canAttemptPickup(): boolean { return this.rejectedCooldown <= 0 }
+
+  rejectPickup(): void {
+    this.rejectedCooldown = 0.65
+  }
 
   dispose(): void {
     this.core.geometry.dispose()

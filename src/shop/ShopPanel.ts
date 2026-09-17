@@ -1,7 +1,6 @@
 import type { ShopSystem } from './ShopSystem.ts'
 import { STARTER_WEAPON_TYPES, WeaponType, type WeaponType as WeaponTypeValue } from '../combat/WeaponDefinition.ts'
 import { WEAPON_DEFINITIONS } from '../combat/weaponDefinitions.ts'
-import { GAME_CONFIG } from '../config/gameConfig.ts'
 
 export class ShopPanel {
   private readonly root: HTMLElement
@@ -76,7 +75,7 @@ export class ShopPanel {
       <div class="shop-panel__card">
         <header>
           <div><span class="eyebrow">ROUND SHOP</span><h2>Choose a buff</h2></div>
-          <strong>${this.getMoney()} money · ${this.shop.purchasesThisShop}/${GAME_CONFIG.shop.maxPurchasesPerShop}</strong>
+          <strong>${this.getMoney()} money · 本页可购买：${this.shop.purchasesRemaining}</strong>
         </header>
         ${this.roundEndNotice ? `<p class="shop-panel__notice">${this.roundEndNotice}</p>` : ''}
         <div class="shop-panel__offers">
@@ -93,7 +92,10 @@ export class ShopPanel {
             </button>
           `).join('')}
         </div>
-        <button type="button" class="next-round" data-next-round>Next Round</button>
+        <footer class="shop-panel__actions">
+          <button type="button" class="shop-reroll" data-shop-reroll ${this.getMoney() < this.shop.rerollCost ? 'disabled' : ''}>刷新 · $${this.shop.rerollCost}</button>
+          <button type="button" class="next-round" data-next-round>Next Round</button>
+        </footer>
       </div>
     `
   }
@@ -109,6 +111,10 @@ export class ShopPanel {
     const offerButton = target.closest<HTMLElement>('[data-shop-item]')
     if (offerButton?.dataset.shopItem) {
       this.shop.purchase(offerButton.dataset.shopItem)
+      return
+    }
+    if (target.closest('[data-shop-reroll]')) {
+      this.shop.reroll()
       return
     }
     if (target.closest('[data-next-round]')) this.onNextRound()

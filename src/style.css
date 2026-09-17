@@ -262,6 +262,31 @@ body {
   font-weight: 800;
 }
 
+.shop-panel__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.shop-panel__actions .next-round { margin-top: 0; }
+.shop-reroll:disabled { opacity: .42; cursor: not-allowed; }
+
+.start-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(7, 13, 18, .7);
+  backdrop-filter: blur(5px);
+}
+.start-screen[hidden] { display: none; }
+.start-screen__card { display: grid; justify-items: center; gap: 28px; padding: 40px 58px; text-align: center; }
+.start-screen h1 { margin: 0; color: #fff3c4; font: 900 clamp(44px, 8vw, 80px)/1 "Microsoft YaHei", "PingFang SC", sans-serif; letter-spacing: .12em; text-shadow: 0 0 32px rgba(255, 209, 102, .35); }
+.start-screen button { min-width: 190px; padding: 14px 26px; border: 1px solid rgba(255, 225, 138, .85); border-radius: 10px; color: #fff7d8; background: #283b3d; font: 800 18px "Microsoft YaHei", sans-serif; cursor: pointer; transition: transform .15s ease, background .15s ease; }
+.start-screen button:hover { transform: translateY(-2px); background: #3f5c57; }
+
 .element-slots {
   position: absolute;
   top: 18px;

@@ -1,4 +1,5 @@
 import type { WeaponType, WeaponStatKey } from '../combat/WeaponDefinition.ts'
+import type { SynergyUpgradeDefinition } from '../combat/SynergyUpgradeDefinition.ts'
 
 export const BuffRarity = { Common: 'Common', Uncommon: 'Uncommon', Rare: 'Rare' } as const
 export type BuffRarity = typeof BuffRarity[keyof typeof BuffRarity]
@@ -34,6 +35,9 @@ export interface BuffDefinition {
   requirements: readonly BuffRequirement[]
   weight: number
   maxStacks: number
+  /** Identifies where this offer came from for UI/debugging; it does not affect combat behaviour. */
+  source?: 'Generic' | 'Weapon' | 'Synergy'
+  synergyUpgrade?: SynergyUpgradeDefinition
 }
 
 export interface BuffOffer { definition: BuffDefinition; purchased: boolean }

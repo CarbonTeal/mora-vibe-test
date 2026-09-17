@@ -3,11 +3,20 @@ import type { Wallet } from '../economy/Wallet.ts'
 import { MoneyPickup } from '../economy/MoneyPickup.ts'
 import type { Player } from '../entities/Player.ts'
 
+export interface MoneyPickupEvents {
+  onManualCollected?: (amount: number) => void
+  onRoundEndCollected?: (total: number, collected: number) => void
+}
+
 export class MoneyPickupSystem {
   readonly pickups: MoneyPickup[] = []
   private readonly scene: THREE.Scene
+  private readonly events: MoneyPickupEvents
 
-  constructor(scene: THREE.Scene) { this.scene = scene }
+  constructor(scene: THREE.Scene, events: MoneyPickupEvents = {}) {
+    this.scene = scene
+    this.events = events
+  }
 
   spawn(position: THREE.Vector3, amount = 1): void {
     const pickup = new MoneyPickup(position, amount)
@@ -28,6 +37,7 @@ export class MoneyPickupSystem {
       const pickup = this.pickups[index]
       if (pickup.update(delta, player.object.position, player.stats.pickupRange)) {
         wallet.add(pickup.amount)
+        this.events.onManualCollected?.(pickup.amount)
         this.remove(index)
       } else if (pickup.remaining <= 0) {
         this.remove(index)
@@ -39,6 +49,7 @@ export class MoneyPickupSystem {
     const total = this.pickups.reduce((sum, pickup) => sum + pickup.amount, 0)
     const collected = Math.floor(total * Math.max(0, Math.min(1, ratio)))
     if (collected > 0) wallet.add(collected)
+    this.events.onRoundEndCollected?.(total, collected)
     for (let index = this.pickups.length - 1; index >= 0; index -= 1) this.remove(index)
     return { total, collected }
   }

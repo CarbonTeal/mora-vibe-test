@@ -58,6 +58,12 @@ export class Player {
     }
   }
 
+  /** Resets only transient round positioning; character progression remains untouched. */
+  resetCombatPosition(): void {
+    this.object.position.set(0, 0, 0)
+    this.object.rotation.set(0, 0, 0)
+  }
+
   gainExperience(amount: number): void {
     this.xp += amount
 

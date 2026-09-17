@@ -2,12 +2,20 @@ import type { FusionCreatedEvent } from '../fusion/FusionTypes.ts'
 import { ElementInventory } from './ElementInventory.ts'
 import type { ElementType } from './ElementType.ts'
 import type { SkillDefinition } from '../skills/SkillDefinition.ts'
+import { getSkillDefinition } from '../skills/SkillRegistry.ts'
+
+export type EvolutionTier = 0 | 1 | 2
 
 export interface EvolutionState {
   id: string
   name: string
   glyph: string
   baseElement?: ElementType
+  tier: EvolutionTier
+}
+
+export function getEvolutionTier(evolution?: EvolutionState): EvolutionTier {
+  return evolution?.tier ?? 0
 }
 
 export class BuildState {
@@ -21,6 +29,7 @@ export class BuildState {
   }
 
   recordFusion(event: FusionCreatedEvent): void {
+    const definition = getSkillDefinition(event.resultSkillId)
     this.fusionHistory.push(event)
     this.unlockedResultSkillIds.add(event.resultSkillId)
     this.currentEvolution = {
@@ -28,6 +37,7 @@ export class BuildState {
       name: event.displayName,
       glyph: event.displayGlyph,
       baseElement: event.recipeId.startsWith('single-') ? event.inputA : undefined,
+      tier: definition?.tier === 2 ? 2 : 1,
     }
   }
 
@@ -41,6 +51,7 @@ export class BuildState {
       baseElement: definition.id.startsWith('element-')
         ? definition.id.slice('element-'.length).replace(/^./, (letter) => letter.toUpperCase()) as ElementType
         : undefined,
+      tier: definition.tier === 2 ? 2 : 1,
     }
   }
 

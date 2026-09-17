@@ -13,6 +13,7 @@ export class EnemySystem {
   private readonly scene: THREE.Scene
   readonly enemyProjectiles: EnemyProjectileSystem
   private currentRound = 1
+  private readonly onEnemySpawned: (enemy: Enemy) => void
   private spawnCooldown: number = GAME_CONFIG.spawning.interval
   private spawningEnabled = true
   private difficulty: RoundDifficulty = {
@@ -21,13 +22,10 @@ export class EnemySystem {
     spawnRateMultiplier: 1,
   }
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, onEnemySpawned: (enemy: Enemy) => void = () => undefined) {
     this.scene = scene
+    this.onEnemySpawned = onEnemySpawned
     this.enemyProjectiles = new EnemyProjectileSystem(scene)
-  }
-
-  spawnInitialWave(playerPosition: THREE.Vector3): void {
-    this.spawnMany(GAME_CONFIG.spawning.initialCount, playerPosition)
   }
 
   spawnMany(count: number, playerPosition: THREE.Vector3): void {
@@ -45,20 +43,24 @@ export class EnemySystem {
     })
     this.enemies.push(enemy)
     this.scene.add(enemy.object)
+    this.onEnemySpawned(enemy)
     return enemy
   }
 
   spawnElementEnemy(element: ElementType, playerPosition: THREE.Vector3): ElementEnemy {
     const position = this.createSpawnPosition(playerPosition, GAME_CONFIG.elements.spawnDistance)
-    const enemy = new ElementEnemy(position, element, this.difficulty.enemyHpMultiplier)
+    const roundHpMultiplier = GAME_CONFIG.elements.enemyHpMultiplierByRound[this.currentRound] ?? 1
+    const enemy = new ElementEnemy(position, element, this.difficulty.enemyHpMultiplier * roundHpMultiplier)
     this.enemies.push(enemy)
     this.scene.add(enemy.object)
+    this.onEnemySpawned(enemy)
     return enemy
   }
 
   setSpawningEnabled(enabled: boolean): void {
+    const justEnabled = enabled && !this.spawningEnabled
     this.spawningEnabled = enabled
-    if (enabled) this.spawnCooldown = 0
+    if (justEnabled) this.spawnCooldown = GAME_CONFIG.spawning.roundStartSpawnGraceSeconds
   }
 
   setDifficulty(difficulty: RoundDifficulty): void {
@@ -145,6 +147,7 @@ export class EnemySystem {
       enemy.dispose()
     }
     this.enemies.length = 0
+    this.enemyProjectiles.clear()
   }
 
   dispose(): void {
