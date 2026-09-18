@@ -75,7 +75,10 @@ export class ShopPanel {
       <div class="shop-panel__card">
         <header>
           <div><span class="eyebrow">ROUND SHOP</span><h2>Choose a buff</h2></div>
-          <strong>${this.getMoney()} money · 本页可购买：${this.shop.purchasesRemaining}</strong>
+          <div class="shop-panel__status">
+            <strong class="shop-panel__wallet">金币 <span>$${this.getMoney()}</span></strong>
+            <span>本页可购买：${this.shop.purchasesRemaining}</span>
+          </div>
         </header>
         ${this.roundEndNotice ? `<p class="shop-panel__notice">${this.roundEndNotice}</p>` : ''}
         <div class="shop-panel__offers">

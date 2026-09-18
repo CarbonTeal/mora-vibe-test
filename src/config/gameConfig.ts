@@ -107,7 +107,7 @@ export const GAME_CONFIG = {
   rounds: {
     firstRoundDuration: 30,
     normalRoundDuration: 60,
-    roundClearPauseSeconds: 1,
+    roundClearPauseSeconds: 0.6,
     plannedCount: 20,
     difficulty: {
       enemyHpPerRound: 0.08,

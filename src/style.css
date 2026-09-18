@@ -237,6 +237,26 @@ body {
   letter-spacing: 0.14em;
 }
 
+.shop-panel__status {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  color: #aebdc0;
+  font-size: 12px;
+}
+.shop-panel__wallet {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border: 1px solid rgba(255, 209, 102, .5);
+  border-radius: 9px;
+  color: #ffe9a3;
+  background: rgba(255, 209, 102, .08);
+  font-size: 14px;
+}
+.shop-panel__wallet span { color: #ffd166; font-size: 19px; font-variant-numeric: tabular-nums; }
+
 .shop-panel__offers {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -325,13 +345,15 @@ body {
   right: 20px;
   bottom: 18px;
   min-width: auto;
-  padding: 10px 15px;
-  border-color: rgba(255, 255, 255, .18);
-  color: rgba(232, 243, 242, .55);
-  background: rgba(20, 33, 40, .5);
-  font: 800 12px/1 ui-monospace, Consolas, monospace;
+  padding: 12px 18px;
+  border-color: rgba(255, 209, 102, .75);
+  color: #ffe4a0;
+  background: rgba(84, 65, 29, .5);
+  box-shadow: 0 0 16px rgba(255, 209, 102, .16);
+  font: 800 13px/1 ui-monospace, Consolas, monospace;
   letter-spacing: .12em;
 }
+.start-screen .start-screen__dev:hover { border-color: #fff0bd; color: #fff7d8; background: rgba(128, 97, 36, .68); box-shadow: 0 0 22px rgba(255, 209, 102, .34); }
 
 .element-slots {
   position: absolute;
