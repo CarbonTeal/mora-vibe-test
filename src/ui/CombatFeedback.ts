@@ -12,6 +12,10 @@ export class CombatFeedback {
     this.show(`元素转化 +$${amount}`, 700)
   }
 
+  showBossReward(name: string, description: string): void {
+    this.show(`BOSS DEFEATED\n获得稀有强化\n${name}\n${description}`, 2800)
+  }
+
   private show(message: string, duration: number): void {
     window.clearTimeout(this.hideTimer)
     this.root.textContent = message

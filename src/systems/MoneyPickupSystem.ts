@@ -54,8 +54,12 @@ export class MoneyPickupSystem {
     return { total, collected }
   }
 
-  dispose(): void {
+  clear(): void {
     for (let index = this.pickups.length - 1; index >= 0; index -= 1) this.remove(index)
+  }
+
+  dispose(): void {
+    this.clear()
   }
 
   private remove(index: number): void {

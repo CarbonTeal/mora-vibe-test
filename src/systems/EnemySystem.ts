@@ -7,6 +7,7 @@ import type { Player } from '../entities/Player.ts'
 import type { RoundDifficulty } from '../rounds/RoundSystem.ts'
 import { EliteModifier, EnemyArchetype } from '../entities/EnemyArchetype.ts'
 import { EnemyProjectileSystem } from './EnemyProjectileSystem.ts'
+import { RoundSpecialType, type RoundSpecialDefinition } from '../rounds/RoundSpecialConfig.ts'
 
 export class EnemySystem {
   readonly enemies: Enemy[] = []
@@ -16,6 +17,7 @@ export class EnemySystem {
   private readonly onEnemySpawned: (enemy: Enemy) => void
   private spawnCooldown: number = GAME_CONFIG.spawning.interval
   private spawningEnabled = true
+  private roundSpecial: RoundSpecialDefinition = { type: RoundSpecialType.Normal }
   private difficulty: RoundDifficulty = {
     enemyHpMultiplier: 1,
     enemySpeedMultiplier: 1,
@@ -47,10 +49,16 @@ export class EnemySystem {
     return enemy
   }
 
-  spawnElementEnemy(element: ElementType, playerPosition: THREE.Vector3): ElementEnemy {
+  addEnemy(enemy: Enemy): void {
+    this.enemies.push(enemy)
+    this.scene.add(enemy.object)
+    this.onEnemySpawned(enemy)
+  }
+
+  spawnElementEnemy(element: ElementType, playerPosition: THREE.Vector3, tier3TargetId?: string): ElementEnemy {
     const position = this.createSpawnPosition(playerPosition, GAME_CONFIG.elements.spawnDistance)
     const roundHpMultiplier = GAME_CONFIG.elements.enemyHpMultiplierByRound[this.currentRound] ?? 1
-    const enemy = new ElementEnemy(position, element, this.difficulty.enemyHpMultiplier * roundHpMultiplier)
+    const enemy = new ElementEnemy(position, element, this.difficulty.enemyHpMultiplier * roundHpMultiplier, tier3TargetId)
     this.enemies.push(enemy)
     this.scene.add(enemy.object)
     this.onEnemySpawned(enemy)
@@ -71,6 +79,12 @@ export class EnemySystem {
     this.currentRound = round
   }
 
+  setRoundSpecial(definition: RoundSpecialDefinition): void {
+    this.roundSpecial = definition
+  }
+
+  get hpDifficultyMultiplier(): number { return this.difficulty.enemyHpMultiplier }
+
   update(
     delta: number,
     player: Player,
@@ -85,7 +99,10 @@ export class EnemySystem {
       this.enemies.length < GAME_CONFIG.spawning.maxAlive
     ) {
       this.spawn(player.object.position)
-      this.spawnCooldown = GAME_CONFIG.spawning.interval / this.difficulty.spawnRateMultiplier
+      const rushMultiplier = this.roundSpecial.eliteRush?.spawnIntervalMultiplier ?? 1
+      const bossPressure = this.roundSpecial.bossWave?.spawnPressureMultiplier ?? 1
+      this.spawnCooldown = GAME_CONFIG.spawning.interval * rushMultiplier /
+        (this.difficulty.spawnRateMultiplier * bossPressure)
     }
 
     for (const enemy of this.enemies) {
@@ -101,7 +118,7 @@ export class EnemySystem {
       const distanceSquared = enemy.object.position.distanceToSquared(player.object.position)
 
       if (distanceSquared <= collisionDistance ** 2 && enemy.canDealContactDamage) {
-        player.damageReceiver.receive(GAME_CONFIG.enemy.contactDamage * getDamageOutputMultiplier(enemy))
+        player.damageReceiver.receive(GAME_CONFIG.enemy.contactDamage * enemy.contactDamageMultiplier * getDamageOutputMultiplier(enemy))
         enemy.resetContactCooldown(getAttackRateMultiplier(enemy))
       }
     }
@@ -173,6 +190,18 @@ export class EnemySystem {
   }
 
   private chooseArchetype(): EnemyArchetype {
+    const specialWeights = this.roundSpecial.type === RoundSpecialType.EliteRush
+      ? this.roundSpecial.eliteRush?.archetypeWeights
+      : this.roundSpecial.bossWave?.archetypeWeights
+    if (specialWeights) {
+      const candidates = Object.entries(specialWeights) as Array<[EnemyArchetype, number]>
+      const total = candidates.reduce((sum, [, weight]) => sum + weight, 0)
+      let roll = Math.random() * total
+      for (const [archetype, weight] of candidates) {
+        roll -= weight
+        if (roll <= 0) return archetype
+      }
+    }
     const progression = GAME_CONFIG.enemy.progression
     const candidates: Array<{ archetype: EnemyArchetype; weight: number }> = [
       { archetype: EnemyArchetype.Chaser, weight: 1 },
@@ -190,6 +219,16 @@ export class EnemySystem {
   }
 
   private chooseEliteModifiers(archetype: EnemyArchetype): EliteModifier[] {
+    const rush = this.roundSpecial.type === RoundSpecialType.EliteRush ? this.roundSpecial.eliteRush : undefined
+    if (rush) {
+      if (Math.random() >= rush.eliteChance) return []
+      const valid = rush.modifiers.filter((modifier) =>
+        (modifier !== EliteModifier.RapidFire && modifier !== EliteModifier.MultiShot) || archetype === EnemyArchetype.Shooter,
+      )
+      const count = Math.min(valid.length, Math.random() < 0.35 ? rush.maxModifiers : 1)
+      const shuffled = [...valid].sort(() => Math.random() - 0.5)
+      return shuffled.slice(0, count)
+    }
     const progression = GAME_CONFIG.enemy.progression
     if (this.currentRound < progression.eliteUnlockRound || Math.random() >= progression.eliteChance) return []
     const options: EliteModifier[] = [EliteModifier.Fast, EliteModifier.Tanky, EliteModifier.RadialBurst]

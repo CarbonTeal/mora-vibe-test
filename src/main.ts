@@ -8,7 +8,8 @@ if (!app) {
   throw new Error('Missing #app root element')
 }
 
-const debugMarkup = import.meta.env.DEV ? '<aside id="debug-panel" class="debug-panel"></aside>' : ''
+type GameMode = 'normal' | 'dev'
+const RESTART_MODE_KEY = 'mora-restart-mode'
 
 app.innerHTML = `
   <main class="game-shell">
@@ -18,21 +19,24 @@ app.innerHTML = `
         <h1>元素魔导士</h1>
         <button id="start-game" type="button">开始游戏</button>
       </div>
+      <button id="start-dev" class="start-screen__dev" type="button">DEV MODE</button>
     </section>
-    <section class="hud" aria-live="polite">
+    <section class="hud hud--player" aria-live="polite">
       <div class="hud__title">Mora Prototype</div>
       <div class="hud__stats">
         <span id="hud-health">HP 100 / 100</span>
-        <span id="hud-level">Level 1</span>
         <span id="hud-xp">XP 0 / 60</span>
-        <span id="hud-enemies">Enemies 0</span>
-        <span id="hud-round">Round 1</span>
-        <span id="hud-state">Combat</span>
-        <span id="hud-time">30.0s</span>
-        <span id="hud-money">Money 0</span>
+        <span id="hud-money">$ 0</span>
+        <span id="hud-level" class="hud__dev-only">Level 1</span>
+        <span id="hud-enemies" class="hud__dev-only">Enemies 0</span>
+        <span id="hud-state" class="hud__dev-only">Combat</span>
       </div>
-      <div id="hud-skills" class="hud__skills">Skills: Basic Projectile</div>
+      <div id="hud-skills" class="hud__skills hud__dev-only">Skills: Basic Projectile</div>
       <div class="hud__hint">WASD 移动 · 自动瞄准与攻击</div>
+    </section>
+    <section class="hud-round" aria-live="polite">
+      <strong id="hud-round">ROUND 1 / 20</strong>
+      <span id="hud-time">00:30</span>
     </section>
     <section id="fusion-feedback" class="fusion-feedback" aria-live="assertive">
       <small id="fusion-source"></small>
@@ -43,6 +47,7 @@ app.innerHTML = `
     <section id="element-slots" class="element-slots" aria-label="Element evolution">
       <div class="element-slots__label">CURRENT</div>
       <div id="current-evolution" class="element-slots__current">—</div>
+      <div id="current-evolution-special" class="element-slots__special" hidden></div>
       <div id="pending-elements" class="element-slots__pair" hidden>
         <span id="element-slot-1" class="element-slot"></span>
         <span id="element-slots-link" class="element-slots__link" hidden>+</span>
@@ -71,10 +76,15 @@ app.innerHTML = `
     </section>
     <section id="shop-panel" class="shop-panel" hidden></section>
     <section id="game-over" class="game-over" hidden>
-      <strong>Run Over</strong>
-      <span>刷新页面重新开始</span>
+      <strong>游戏结束</strong>
+      <button id="restart-game-over" type="button">重新开始</button>
     </section>
-    ${debugMarkup}
+    <section id="victory-screen" class="game-over victory-screen" hidden>
+      <strong>胜利</strong>
+      <span>20轮完成</span>
+      <button id="restart-game" type="button">重新开始</button>
+    </section>
+    <aside id="debug-panel" class="debug-panel" hidden></aside>
   </main>
 `
 
@@ -106,6 +116,7 @@ const game = new Game(canvas, {
   elementSlots: {
     root: document.querySelector<HTMLElement>('#element-slots')!,
     current: document.querySelector<HTMLElement>('#current-evolution')!,
+    currentSpecial: document.querySelector<HTMLElement>('#current-evolution-special')!,
     pendingRoot: document.querySelector<HTMLElement>('#pending-elements')!,
     slot1: document.querySelector<HTMLElement>('#element-slot-1')!,
     slot2: document.querySelector<HTMLElement>('#element-slot-2')!,
@@ -125,16 +136,38 @@ const game = new Game(canvas, {
   shopRoot: document.querySelector<HTMLElement>('#shop-panel')!,
   combatFeedback: document.querySelector<HTMLElement>('#combat-feedback')!,
   startScreen: document.querySelector<HTMLElement>('#start-screen')!,
+  victoryScreen: document.querySelector<HTMLElement>('#victory-screen')!,
 })
 
-document.querySelector<HTMLButtonElement>('#start-game')!.addEventListener('click', () => game.beginRun())
-
 const debugRoot = document.querySelector<HTMLElement>('#debug-panel')
-const debugPanel = import.meta.env.DEV && debugRoot
-  ? new DebugPanel(debugRoot, game.getDebugActions())
-  : undefined
+const shell = document.querySelector<HTMLElement>('.game-shell')!
+const debugPanel = debugRoot ? new DebugPanel(debugRoot, game.getDebugActions()) : undefined
+let currentMode: GameMode = 'normal'
+
+const startRun = (mode: GameMode): void => {
+  currentMode = mode
+  shell.dataset.gameMode = mode
+  if (debugRoot) debugRoot.hidden = mode !== 'dev'
+  game.beginRun()
+}
+
+const restartRun = (): void => {
+  sessionStorage.setItem(RESTART_MODE_KEY, currentMode)
+  window.location.reload()
+}
+
+document.querySelector<HTMLButtonElement>('#start-game')!.addEventListener('click', () => startRun('normal'))
+document.querySelector<HTMLButtonElement>('#start-dev')!.addEventListener('click', () => startRun('dev'))
+document.querySelector<HTMLButtonElement>('#restart-game')!.addEventListener('click', restartRun)
+document.querySelector<HTMLButtonElement>('#restart-game-over')!.addEventListener('click', restartRun)
 
 game.start()
+
+const restartMode = sessionStorage.getItem(RESTART_MODE_KEY)
+if (restartMode === 'normal' || restartMode === 'dev') {
+  sessionStorage.removeItem(RESTART_MODE_KEY)
+  startRun(restartMode)
+}
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {

@@ -14,6 +14,7 @@ export class DebugPanel {
     const skillOptions = actions.getSkillOptions()
     const weaponUpgrades = actions.getWeaponUpgradeOptions()
     const synergyUpgrades = actions.getSynergyUpgradeOptions()
+    const attackModeAudit = actions.getAttackModeAudit()
     this.root.innerHTML = `
       <div class="debug-panel__header">DEBUG</div>
       <pre class="debug-panel__state" data-debug-state></pre>
@@ -21,13 +22,15 @@ export class DebugPanel {
         <button type="button" data-action="return-start">Return to Start Screen</button>
       </div>
       <div class="debug-panel__group">
-        <strong>FORCE EVOLUTION (6 T1 + 45 T2)</strong>
+        <strong>FORCE EVOLUTION (6 T1 + 45 T2 + 45 T3)</strong>
         <select data-skill-select>
           ${skillOptions.map((skill) => `<option value="${skill.id}">T${skill.tier} · ${skill.name}</option>`).join('')}
         </select>
         <div class="debug-panel__group--grid">
           <button type="button" data-action="previous-skill">Previous Skill</button>
           <button type="button" data-action="next-skill">Next Skill</button>
+          <button type="button" data-action="previous-tier3">Previous Tier3</button>
+          <button type="button" data-action="next-tier3">Next Tier3</button>
         </div>
       </div>
       <div class="debug-panel__group">
@@ -97,9 +100,18 @@ export class DebugPanel {
         <button type="button" data-action="apply-synergy">Apply Synergy Upgrade</button>
       </div>
       <div class="debug-panel__group debug-panel__group--grid">
-        <button type="button" data-action="trigger-element-schedule">Trigger Scheduled Element Spawn</button>
+        <button type="button" data-action="trigger-element-schedule">Trigger Tier3 / Scheduled Element Spawn</button>
         <button type="button" data-action="element-delay-test">Force Element Spawn Delay test</button>
+        <button type="button" data-action="force-round-9">Force Round9</button>
+        <button type="button" data-action="give-tier3-core">Give Tier3 Evolution Core</button>
       </div>
+      <div class="debug-panel__group debug-panel__group--grid">
+        ${[2, 5, 10, 12, 14, 16, 18, 20].map((round) => `<button type="button" data-force-round="${round}">Force Round ${round}</button>`).join('')}
+      </div>
+      <details class="debug-panel__group">
+        <summary>ATTACK MODE AUDIT · 45 T2 + 45 T3</summary>
+        <pre>${attackModeAudit.join('\n')}</pre>
+      </details>
     `
     this.root.addEventListener('click', this.onClick)
     this.root.addEventListener('change', this.onChange)
@@ -147,6 +159,9 @@ export class DebugPanel {
         `Current Weapon: ${state.currentWeapon}`,
         `Weapon: ${state.weaponStats}`,
         `Evolution Behaviour: ${state.evolutionBehaviour}`,
+        `Evolution AttackMode: ${state.evolutionAttackMode || 'None'}`,
+        `Weapon Primary Fire: ${state.weaponPrimaryFireEnabled ? 'ENABLED' : 'SUPPRESSED'}`,
+        `Weapon Stat Inheritance: ${state.weaponStatInheritance || 'None'}`,
         `Active Synergy: ${state.activeSynergies.join(', ') || 'None'}`,
         `Spawned Elements: ${state.spawnedElements.join(', ') || 'None'}`,
         `Owned Buffs: ${state.ownedBuffs.join(', ') || 'None'}`,
@@ -154,6 +169,7 @@ export class DebugPanel {
         `Combat Elapsed: ${state.combatElapsed.toFixed(1)} / ${state.roundDuration.toFixed(1)}s`,
         `Element Spawn Scheduled: ${state.elementSpawnScheduled ? 'YES' : 'NO'}`,
         `Element Spawn Triggered: ${state.elementSpawnTriggered ? 'YES' : 'NO'}`,
+        `Tier3 Spawn Triggered: ${state.tier3Target ? 'YES' : 'NO'}`,
         `Evolution Tutorial Shown: ${state.evolutionTutorialShown ? 'YES' : 'NO'}`,
         `Queued Element Cores: ${state.queuedElementCoreCount}`,
         `Synergy Pool Enabled: ${state.synergyPoolEnabled ? 'YES' : 'NO'}`,
@@ -163,6 +179,23 @@ export class DebugPanel {
         `Purchases Since Reroll: ${state.purchasesSinceLastReroll}`,
         `ElementCore Mode: ${state.elementCoreMode}`,
         `Tier2 Core Value: $${state.tier2ElementCoreMoneyValue}`,
+        `Tier3 Base: ${state.tier3BaseTier2 || 'None'}`,
+        `Tier3 Special: ${state.tier3SpecialName || 'None'}`,
+        `Tier3 Primary: ${state.tier3PrimaryBehaviour || 'None'}`,
+        `Tier3 Secondary: ${state.tier3SecondaryBehaviour || 'None'}`,
+        `Tier3 Coupling: ${state.tier3CouplingTrigger || 'None'}`,
+        `Tier3 Required: ${state.tier3RequiredElement || 'None'}`,
+        `Tier3 Target: ${state.tier3Target || 'None'}`,
+        `Tier3 Pending: ${state.tier3Pending || 'None'}`,
+        `Round Special: ${state.roundSpecialType}`,
+        `Boss Alive: ${state.bossAlive ? 'YES' : 'NO'}`,
+        `Boss HP: ${state.bossHp}`,
+        `Boss Phase: ${state.bossPhase}${state.bossEnraged ? ' (ENRAGED)' : ''}`,
+        `Boss Kill Reward Granted: ${state.bossKillRewardGranted ? 'YES' : 'NO'}`,
+        `Boss Round Remaining: ${state.bossRoundRemainingTime.toFixed(1)}s`,
+        `Active Normal Enemies: ${state.activeNormalEnemyCount}`,
+        `Active Boss Summons: ${state.activeBossSummons}`,
+        `Elite Count: ${state.eliteCount}`,
         '',
         'ROUND STATS',
         `Enemies Spawned: ${state.roundStats.enemiesSpawned}`,
@@ -198,6 +231,8 @@ export class DebugPanel {
     if (groundCore) { this.actions.spawnElementCore(groundCore); return }
     const forceTier = target.dataset.forceTier
     if (forceTier) { this.actions.forceEvolution(forceTier); return }
+    const forceRound = Number(target.dataset.forceRound)
+    if (Number.isFinite(forceRound) && forceRound > 0) { this.actions.forceRound(forceRound); return }
     const weapon = target.dataset.weapon as typeof WeaponType[keyof typeof WeaponType] | undefined
     if (weapon) { this.actions.equipWeapon(weapon); return }
     const quickUpgrade = target.dataset.quickUpgrade
@@ -225,6 +260,8 @@ export class DebugPanel {
       case 'force-next': this.actions.forceNextRound(); break
       case 'previous-skill': this.actions.previousSkill(); break
       case 'next-skill': this.actions.nextSkill(); break
+      case 'previous-tier3': this.actions.previousTier3(); break
+      case 'next-tier3': this.actions.nextTier3(); break
       case 'runner': this.actions.spawnEnemy(EnemyArchetype.Runner); break
       case 'chaser': this.actions.spawnEnemy(EnemyArchetype.Chaser); break
       case 'shooter': this.actions.spawnEnemy(EnemyArchetype.Shooter); break
@@ -244,6 +281,8 @@ export class DebugPanel {
       case 'timer-5': this.actions.setRoundTimerToFive(); break
       case 'reset-evolution-tutorial': this.actions.resetEvolutionTutorial(); break
       case 'force-round-6': this.actions.forceRound(6); break
+      case 'force-round-9': this.actions.forceRound(9); break
+      case 'give-tier3-core': this.actions.giveTier3Core(); break
       case 'refresh-shop': this.actions.refreshShop(); break
       case 'force-reroll': this.actions.forceReroll(); break
       case 'return-start': this.actions.returnToStartScreen(); break

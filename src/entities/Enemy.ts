@@ -13,6 +13,10 @@ export interface EnemyTraits {
   eliteModifiers?: readonly EliteModifier[]
   showHitHealthRing?: boolean
   healthRingRadiusMultiplier?: number
+  permanentHealthRing?: boolean
+  boss?: boolean
+  moneyReward?: number
+  xpReward?: number
 }
 
 type ChargeState = 'tracking' | 'windup' | 'charging' | 'cooldown'
@@ -33,6 +37,7 @@ export class Enemy {
   readonly archetype: EnemyArchetype
   readonly eliteModifiers: readonly EliteModifier[]
   readonly isElite: boolean
+  readonly isBoss: boolean
   readonly moneyReward: number
   readonly xpReward: number
   readonly showHitHealthRing: boolean
@@ -50,6 +55,7 @@ export class Enemy {
     this.archetype = traits.archetype ?? EnemyArchetype.Chaser
     this.eliteModifiers = [...(traits.eliteModifiers ?? [])]
     this.isElite = this.eliteModifiers.length > 0
+    this.isBoss = traits.boss ?? false
     const eliteSize = this.isElite ? GAME_CONFIG.enemy.elite.sizeMultiplier : 1
     this.radius = GAME_CONFIG.enemy.radius * (traits.radiusMultiplier ?? 1) * eliteSize
     this.isPersistent = traits.persistent ?? false
@@ -60,10 +66,10 @@ export class Enemy {
     const eliteHp = this.eliteModifiers.includes(EliteModifier.Tanky) ? GAME_CONFIG.enemy.elite.tankyHpMultiplier : 1
     this.health = new Health(Math.round(GAME_CONFIG.enemy.maxHp * hpMultiplier * this.getArchetypeHpMultiplier() * eliteHp))
     const reward = this.isSpecialEnemy ? GAME_CONFIG.enemy.rewards.ElementEnemy : GAME_CONFIG.enemy.rewards[this.archetype]
-    this.moneyReward = this.isElite
+    this.moneyReward = traits.moneyReward ?? (this.isElite
       ? THREE.MathUtils.randInt(GAME_CONFIG.economy.eliteMoneyMin, GAME_CONFIG.economy.eliteMoneyMax)
-      : reward.money
-    this.xpReward = reward.xp
+      : reward.money)
+    this.xpReward = traits.xpReward ?? reward.xp
     if (this.archetype === EnemyArchetype.Charger) {
       this.chargeTimer = GAME_CONFIG.enemy.archetypes.charger.trackingDuration * (0.75 + Math.random() * 0.5)
     }
@@ -81,7 +87,7 @@ export class Enemy {
     this.object.scale.setScalar(eliteSize)
     this.object.castShadow = true
     if (this.showHitHealthRing) {
-      this.healthRing = new WorldHealthRing(this.object, this.health, traits.healthRingRadiusMultiplier ?? 1)
+      this.healthRing = new WorldHealthRing(this.object, this.health, traits.healthRingRadiusMultiplier ?? 1, traits.permanentHealthRing ?? false)
     }
   }
 
@@ -109,6 +115,7 @@ export class Enemy {
   }
 
   get canDealContactDamage(): boolean { return this.contactCooldown <= 0 }
+  get contactDamageMultiplier(): number { return 1 }
 
   resetContactCooldown(attackRateMultiplier = 1): void {
     this.contactCooldown = GAME_CONFIG.enemy.contactInterval / Math.max(0.1, attackRateMultiplier)

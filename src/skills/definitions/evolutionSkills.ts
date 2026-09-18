@@ -1,5 +1,5 @@
 import { GAME_CONFIG } from '../../config/gameConfig.ts'
-import type { EffectDefinition, ModifierDefinition, SkillDefinition } from '../SkillDefinition.ts'
+import type { EffectDefinition, EvolutionAttackMode, ModifierDefinition, SkillDefinition, WeaponStatInheritance } from '../SkillDefinition.ts'
 import {
   EffectType as E,
   ModifierType as M,
@@ -70,7 +70,7 @@ export const TIER_1_SKILLS: readonly SkillDefinition[] = [
   skill({ id: 'element-dark', name: 'Dark / 暗', tier: 1, carrier: C.Projectile, form: F.Straight, behaviour: B.Projectile, effects: [{ type: E.Damage, value: t1.damage }, { type: E.Heal, value: t1.darkLifeSteal }], color: 0x6d45a8, accent: 0xc29cff, cooldown: t1.cooldown, range: t1.range }),
 ]
 
-export const TIER_2_SKILLS: readonly SkillDefinition[] = [
+const TIER_2_BASE_SKILLS: readonly SkillDefinition[] = [
   skill({ id: 'steam', name: 'Steam / 蒸', tier: 2, carrier: C.Cone, form: F.Persistent, behaviour: B.Cone, effects: [{ type: E.Damage, value: 8 }, { type: E.Knockback, value: 0.25 }], modifiers: [{ type: M.Radius, value: 4.8 }], color: 0xc8f3f4, accent: 0xffaa72, cooldown: 0.34, range: 5 }),
   skill({ id: 'boil', name: 'Boil / 沸', tier: 2, carrier: C.Zone, form: F.Persistent, behaviour: B.ZoneProjectile, effects: [{ type: E.DamageOverTime, value: 8, duration: 1.2, interval: 0.35 }], modifiers: [{ type: M.Radius, value: 2.2 }, { type: M.Duration, value: 4 }], color: 0x69cfff, accent: 0xff6a3d, cooldown: 0.8 }),
   skill({ id: 'cloud', name: 'Cloud / 云', tier: 2, carrier: C.PlayerAura, form: F.Rain, behaviour: B.Rain, effects: [{ type: E.Damage, value: 15 }, { type: E.Slow, value: 0.78, duration: 1 }], modifiers: [{ type: M.Radius, value: 5 }], color: 0xd8f1f2, accent: 0xff9a63, cooldown: 0.42 }),
@@ -117,5 +117,38 @@ export const TIER_2_SKILLS: readonly SkillDefinition[] = [
   skill({ id: 'dawn', name: 'Dawn / 曙', tier: 2, carrier: C.PlayerAura, form: F.Pulse, behaviour: B.Aura, effects: [{ type: E.Damage, value: 18 }, { type: E.Heal, value: 2 }], modifiers: [{ type: M.Radius, value: 4.2 }], color: 0xffd29a, accent: 0xfff8cf, cooldown: 0.9 }),
   skill({ id: 'shadow', name: 'Shadow / 影', tier: 2, carrier: C.Projectile, form: F.DelayedEcho, behaviour: B.DelayedEcho, effects: [{ type: E.Damage, value: 22 }], modifiers: [{ type: M.DamageMultiplier, value: 0.55 }], color: 0x34304d, accent: 0xb6a7ff, cooldown: 0.7 }),
 ]
+
+const WEAPON_MODIFIER_IDS = new Set([
+  'explosion', 'wildfire', 'ember', 'ice', 'rainbow', 'poison', 'acid',
+  'crystal', 'mirror', 'coal', 'void',
+])
+
+const ADDITIVE_IDS = new Set(['smoke', 'mud', 'spring', 'fog', 'snow', 'ink', 'gravity'])
+
+function attackModeFor(id: string): EvolutionAttackMode {
+  if (WEAPON_MODIFIER_IDS.has(id)) return 'weaponModifier'
+  if (ADDITIVE_IDS.has(id)) return 'additive'
+  return 'weaponReplacement'
+}
+
+function inheritanceFor(definition: SkillDefinition, mode: EvolutionAttackMode): WeaponStatInheritance {
+  if (mode === 'additive') return { damage: false, attackSpeed: false, range: false, projectileSpeed: false, pierce: false, pelletCount: false }
+  if (mode === 'weaponModifier') return { damage: true, attackSpeed: true, range: true, projectileSpeed: true, pierce: true, pelletCount: true }
+  const projectileLike: readonly SkillBehaviour[] = [B.Projectile, B.BurstProjectile, B.ZoneProjectile, B.PullField, B.Homing, B.Ricochet, B.Split, B.DelayedEcho, B.Blink]
+  const usesProjectile = projectileLike.includes(definition.behaviour!)
+  return {
+    damage: true,
+    attackSpeed: true,
+    range: true,
+    projectileSpeed: usesProjectile,
+    pierce: usesProjectile,
+    pelletCount: usesProjectile,
+  }
+}
+
+export const TIER_2_SKILLS: readonly SkillDefinition[] = TIER_2_BASE_SKILLS.map((definition) => {
+  const attackMode = attackModeFor(definition.id)
+  return { ...definition, attackMode, weaponStatInheritance: inheritanceFor(definition, attackMode) }
+})
 
 export const EVOLUTION_SKILLS: readonly SkillDefinition[] = [...TIER_1_SKILLS, ...TIER_2_SKILLS]

@@ -1,4 +1,5 @@
 import { GAME_CONFIG } from '../config/gameConfig.ts'
+import { getRoundSpecialDefinition, RoundSpecialType, type RoundSpecialDefinition } from './RoundSpecialConfig.ts'
 
 type ValueOf<T> = T[keyof T]
 
@@ -8,6 +9,7 @@ export const GameState = {
   RoundEnd: 'RoundEnd',
   Shop: 'Shop',
   GameOver: 'GameOver',
+  Victory: 'Victory',
 } as const
 export type GameState = ValueOf<typeof GameState>
 
@@ -72,8 +74,15 @@ export class RoundSystem {
     this.setState(GameState.GameOver)
   }
 
+  enterVictory(): void {
+    if (this.state !== GameState.Combat && this.state !== GameState.RoundEnd) return
+    this.setState(GameState.Victory)
+  }
+
   get roundDuration(): number { return this.getRoundDuration(this.currentRound) }
   get combatElapsed(): number { return this.state === GameState.Combat ? this.roundDuration - this.remainingTime : 0 }
+  get specialDefinition(): RoundSpecialDefinition { return getRoundSpecialDefinition(this.currentRound) }
+  get specialType(): RoundSpecialType { return this.specialDefinition.type }
 
   setRemainingTime(seconds: number): void {
     if (this.state !== GameState.Combat) return

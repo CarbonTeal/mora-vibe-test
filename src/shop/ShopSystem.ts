@@ -2,7 +2,7 @@ import { GAME_CONFIG } from '../config/gameConfig.ts'
 import type { PlayerStats } from '../entities/PlayerStats.ts'
 import type { Wallet } from '../economy/Wallet.ts'
 import type { WeaponRuntime } from '../combat/WeaponRuntime.ts'
-import type { BuffDefinition, BuffOffer, BuffTag } from './BuffDefinition.ts'
+import { BuffRarity, type BuffDefinition, type BuffOffer, type BuffTag } from './BuffDefinition.ts'
 import { BuffRuntime } from './BuffRuntime.ts'
 import { getSkillDefinition } from '../skills/SkillRegistry.ts'
 import { getSkillGameplayTags } from './SkillGameplayTags.ts'
@@ -22,7 +22,7 @@ export class ShopSystem {
   private readonly weapon: WeaponRuntime
   private readonly getEvolutionId: () => string
   private readonly getRound: () => number
-  private readonly getEvolutionTier: () => 0 | 1 | 2
+  private readonly getEvolutionTier: () => 0 | 1 | 2 | 3
   private readonly listeners = new Set<ShopListener>()
 
   constructor(
@@ -32,7 +32,7 @@ export class ShopSystem {
     weapon: WeaponRuntime,
     getEvolutionId: () => string,
     getRound: () => number,
-    getEvolutionTier: () => 0 | 1 | 2,
+    getEvolutionTier: () => 0 | 1 | 2 | 3,
   ) {
     this.catalog = catalog
     this.wallet = wallet
@@ -64,6 +64,24 @@ export class ShopSystem {
   forceReroll(): void {
     this.rerollCount += 1
     this.generateOffers()
+  }
+
+  /** Applies one eligible Rare buff without money, offer, or Shop purchase consumption. */
+  grantRandomRareBuff(): BuffDefinition | undefined {
+    const eligible = this.catalog.filter((definition) =>
+      definition.rarity === BuffRarity.Rare && this.isEligible(definition),
+    )
+    if (eligible.length === 0) return undefined
+    const totalWeight = eligible.reduce((sum, definition) => sum + this.getWeight(definition), 0)
+    let roll = Math.random() * totalWeight
+    let selected = eligible[eligible.length - 1]
+    for (const definition of eligible) {
+      roll -= this.getWeight(definition)
+      if (roll <= 0) { selected = definition; break }
+    }
+    if (!this.buffs.acquire(selected)) return undefined
+    this.emitChanged()
+    return selected
   }
 
   private generateOffers(): void {
@@ -104,7 +122,7 @@ export class ShopSystem {
   get rerollCost(): number { return GAME_CONFIG.shop.baseRerollCost * 2 ** this.rerollCount }
   get synergyPoolEnabled(): boolean {
     return this.getRound() >= GAME_CONFIG.shop.synergyUnlockRound &&
-      this.getEvolutionTier() === 2 && this.weapon.weaponType !== WeaponType.BasicAttack
+      this.getEvolutionTier() >= 2 && this.weapon.weaponType !== WeaponType.BasicAttack
   }
   get offerSources(): readonly string[] {
     return this.offers.map((offer) => offer.definition.source ?? (offer.definition.requirements.some((requirement) => requirement.type === 'Weapon') ? 'Weapon' : 'Generic'))

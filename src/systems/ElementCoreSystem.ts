@@ -2,22 +2,23 @@ import * as THREE from 'three'
 import { ElementCore } from '../entities/ElementCore.ts'
 import type { Player } from '../entities/Player.ts'
 import type { ElementType } from '../elements/ElementType.ts'
+import type { ElementCore as ElementCoreEntity } from '../entities/ElementCore.ts'
 
 export class ElementCoreSystem {
   readonly cores: ElementCore[] = []
   private readonly scene: THREE.Scene
-  private readonly onPickup: (element: ElementType) => boolean
+  private readonly onPickup: (core: ElementCoreEntity) => boolean
 
   constructor(
     scene: THREE.Scene,
-    onPickup: (element: ElementType) => boolean,
+    onPickup: (core: ElementCoreEntity) => boolean,
   ) {
     this.scene = scene
     this.onPickup = onPickup
   }
 
-  spawn(element: ElementType, position: THREE.Vector3): ElementCore {
-    const core = new ElementCore(element, position)
+  spawn(element: ElementType, position: THREE.Vector3, options: { purpose?: 'normal' | 'tier3'; targetTier3Id?: string } = {}): ElementCore {
+    const core = new ElementCore(element, position, options)
     this.cores.push(core)
     this.scene.add(core.object)
     return core
@@ -29,7 +30,7 @@ export class ElementCoreSystem {
       core.update(delta)
       const distance = core.object.position.distanceTo(player.object.position)
       if (allowPickup && core.canAttemptPickup && distance <= core.pickupRadius + player.radius) {
-        if (this.onPickup(core.elementType)) this.remove(index)
+        if (this.onPickup(core)) this.remove(index)
         else core.rejectPickup()
         return
       } else if (core.isExpired) {
@@ -40,10 +41,12 @@ export class ElementCoreSystem {
 
   collectAll(): readonly ElementType[] {
     const collected: ElementType[] = []
-    for (let index = this.cores.length - 1; index >= 0; index -= 1) {
-      const element = this.cores[index].elementType
-      collected.push(element)
-      if (this.onPickup(element)) this.remove(index)
+    // Resolve in drop order so RoundEnd preserves ordered build semantics.
+    for (const core of [...this.cores]) {
+      const index = this.cores.indexOf(core)
+      if (index < 0) continue
+      collected.push(core.elementType)
+      if (this.onPickup(core)) this.remove(index)
     }
     return collected
   }

@@ -10,16 +10,18 @@ export class WorldHealthRing {
   private foreground?: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>
   private remaining = 0
   private readonly radiusMultiplier: number
+  private readonly permanent: boolean
   private readonly unsubscribe: () => void
 
-  constructor(parent: THREE.Object3D, health: Health, radiusMultiplier = 1) {
+  constructor(parent: THREE.Object3D, health: Health, radiusMultiplier = 1, permanent = false) {
     const config = GAME_CONFIG.enemy.healthRing
     const inner = config.innerRadius * radiusMultiplier
     const outer = config.outerRadius * radiusMultiplier
     this.radiusMultiplier = radiusMultiplier
+    this.permanent = permanent
     this.object.name = 'WorldHealthRing'
     this.object.rotation.x = -Math.PI / 2
-    this.object.visible = false
+    this.object.visible = permanent
 
     this.background = new THREE.Mesh(
       new THREE.RingGeometry(inner, outer, config.segments),
@@ -50,8 +52,8 @@ export class WorldHealthRing {
 
   update(delta: number, parent: THREE.Object3D): void {
     this.syncGroundHeight(parent)
-    this.remaining = Math.max(0, this.remaining - delta)
-    this.object.visible = this.remaining > 0
+    if (!this.permanent) this.remaining = Math.max(0, this.remaining - delta)
+    this.object.visible = this.permanent || this.remaining > 0
   }
 
   dispose(): void {

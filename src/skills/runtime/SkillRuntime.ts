@@ -3,7 +3,7 @@ import { GAME_CONFIG } from '../../config/gameConfig.ts'
 import type { Enemy } from '../../entities/Enemy.ts'
 import type { Player } from '../../entities/Player.ts'
 import { Projectile } from '../../entities/Projectile.ts'
-import type { SkillDefinition } from '../SkillDefinition.ts'
+import type { SkillDefinition, Tier3CouplingTrigger } from '../SkillDefinition.ts'
 import { EffectType, ModifierType, SkillBehaviour, SkillForm, SkillTrigger } from '../SkillEnums.ts'
 import { EffectResolver } from './EffectResolver.ts'
 import { getModifierValue } from './ModifierResolver.ts'
@@ -11,6 +11,7 @@ import { StatusSystem } from './StatusSystem.ts'
 import type { WeaponRuntime } from '../../combat/WeaponRuntime.ts'
 import { SynergyParameter } from '../../combat/SynergyUpgradeDefinition.ts'
 import { EvolutionFamily, WEAPON_EVOLUTION_PROFILES, type WeaponEvolutionProfile } from '../../combat/WeaponEvolutionSynergy.ts'
+import { BASIC_PROJECTILE_SKILL } from '../definitions/coreSkills.ts'
 
 interface RuntimeZone {
   definition: SkillDefinition
@@ -55,6 +56,9 @@ export class SkillRuntime {
   private readonly visuals: RuntimeVisual[] = []
   private readonly echoes: RuntimeEcho[] = []
   private readonly timerCooldowns = new Map<string, number>()
+  private readonly secondaryCooldowns = new Map<string, number>()
+  private readonly secondaryTriggerCounts = new Map<string, number>()
+  private readonly secondaryProcCounts = new Map<string, number>()
   private readonly deathBurstProcessed = new Set<string>()
   private readonly pendingSpecialDefeats = new Map<Enemy, SkillDefinition>()
   private currentEnemies: Enemy[] = []
@@ -76,7 +80,8 @@ export class SkillRuntime {
   get definitions(): readonly SkillDefinition[] { return [...this.definitionMap.values()] }
   get activeSkillNames(): string[] { return this.definitions.map((definition) => definition.name) }
   get debugObjectCounts(): string {
-    return `P${this.projectiles.length} Z${this.zones.length} O${this.orbits.length} V${this.visuals.length} E${this.echoes.length}`
+    const couplingProcs = [...this.secondaryProcCounts.values()].reduce((sum, count) => sum + count, 0)
+    return `P${this.projectiles.length} Z${this.zones.length} O${this.orbits.length} V${this.visuals.length} E${this.echoes.length} C${couplingProcs}`
   }
 
   unlockDefinition(definition: SkillDefinition): boolean {
@@ -87,7 +92,9 @@ export class SkillRuntime {
   }
 
   setEvolutionDefinition(definition: SkillDefinition): void {
-    this.resetDefinitions([definition])
+    this.resetDefinitions(definition.attackMode === 'additive'
+      ? [BASIC_PROJECTILE_SKILL, definition]
+      : [definition])
   }
 
   resetDefinitions(definitions: readonly SkillDefinition[]): void {
@@ -107,10 +114,16 @@ export class SkillRuntime {
 
   update(delta: number, player: Player, enemies: Enemy[]): void {
     this.weapon.synergy.update(delta)
+    this.updateSecondaryCooldowns(delta)
     this.currentEnemies = enemies
     for (const defeat of this.statuses.update(delta)) {
       const source = this.definitionMap.get(defeat.sourceId.split(':')[0]) ?? this.definitions[0]
-      if (source) this.handleDefeat(defeat.enemy, source, player)
+      if (source) {
+        this.handleDefeat(defeat.enemy, source, player)
+        if (!defeat.sourceId.includes(':secondary:')) {
+          this.emitPrimaryEvent(source, 'OnPrimaryKill', player, enemies, defeat.enemy.object.position.clone(), defeat.enemy)
+        }
+      }
     }
     this.updateTimerSkills(delta, player, enemies)
     this.updateProjectiles(delta, player, enemies)
@@ -163,6 +176,9 @@ export class SkillRuntime {
     this.pendingSpecialDefeats.clear()
     this.currentEnemies = []
     this.statusApplicationsByAttack.clear()
+    this.secondaryCooldowns.clear()
+    this.secondaryTriggerCounts.clear()
+    this.secondaryProcCounts.clear()
     this.weapon.synergy.clearTransientState()
   }
 
@@ -192,9 +208,142 @@ export class SkillRuntime {
         continue
       }
       this.activate(definition, player, enemies, target)
+      this.emitPrimaryEvent(definition, 'OnPrimaryCast', player, enemies, player.object.position.clone(), target)
       this.effects.applyActivationCosts(definition, player)
-      const interval = this.effectiveAttackInterval(definition) * this.effects.getAttackIntervalMultiplier(definition, player)
+      const interval = this.effectiveAttackInterval(definition) * (
+        this.inheritsWeaponStat(definition, 'attackSpeed')
+          ? this.effects.getAttackIntervalMultiplier(definition, player)
+          : 1
+      )
       this.timerCooldowns.set(definition.id, Math.max(0.05, interval))
+    }
+  }
+
+  private updateSecondaryCooldowns(delta: number): void {
+    for (const [id, remaining] of this.secondaryCooldowns) {
+      const next = remaining - delta
+      if (next <= 0) this.secondaryCooldowns.delete(id)
+      else this.secondaryCooldowns.set(id, next)
+    }
+  }
+
+  private emitPrimaryEvent(
+    definition: SkillDefinition,
+    trigger: Tier3CouplingTrigger,
+    player: Player,
+    enemies: Enemy[],
+    origin: THREE.Vector3,
+    preferredTarget?: Enemy,
+  ): void {
+    const config = definition.secondaryConfig
+    if (!definition.secondaryBehaviour || !config || config.couplingTrigger !== trigger) return
+    const count = (this.secondaryTriggerCounts.get(definition.id) ?? 0) + 1
+    if (count < config.triggerThreshold) {
+      this.secondaryTriggerCounts.set(definition.id, count)
+      return
+    }
+    this.secondaryTriggerCounts.set(definition.id, 0)
+    if (this.secondaryCooldowns.has(definition.id)) return
+    const activeObjects = this.projectiles.length + this.zones.length + this.visuals.length + this.echoes.length
+    if (activeObjects >= config.maxActive + this.orbits.length) return
+    const target = preferredTarget && !preferredTarget.health.isDead
+      ? preferredTarget
+      : this.findNearestTarget(origin, enemies, this.effectiveRange(definition) * 1.35)
+    if (!target) return
+    this.activateCoupledSecondary(definition, player, enemies, origin, target)
+    this.secondaryProcCounts.set(definition.id, (this.secondaryProcCounts.get(definition.id) ?? 0) + 1)
+    this.secondaryCooldowns.set(definition.id, config.cooldown)
+  }
+
+  private activateCoupledSecondary(
+    primary: SkillDefinition,
+    player: Player,
+    enemies: Enemy[],
+    origin: THREE.Vector3,
+    target: Enemy,
+  ): void {
+    const proxy = this.createSecondaryDefinition(primary)
+    const secondary = primary.secondaryBehaviour!
+    const cap = primary.secondaryConfig!.generationCap
+    const attackId = this.nextAttackId()
+    if (['Zone', 'MovingAura', 'MovingZone', 'TrailZone', 'FissureZone', 'BurnZone', 'Decoy', 'SpreadStatus'].includes(secondary)) {
+      this.createZone(proxy, origin, false)
+      this.createBurstVisual(proxy, origin)
+      return
+    }
+    if (secondary === 'ExpandingZone') {
+      this.createZone(proxy, origin, true)
+      this.createBurstVisual(proxy, origin)
+      return
+    }
+    if (['Beam', 'BeamPulse', 'BeamRefraction', 'ChainArc', 'Flare'].includes(secondary)) {
+      const forward = target.object.position.clone().sub(origin).setY(0).normalize()
+      const beamCount = Math.max(1, Math.min(5, cap))
+      for (let index = 0; index < beamCount; index += 1) {
+        const spread = beamCount === 1 ? 0 : THREE.MathUtils.lerp(-0.5, 0.5, index / (beamCount - 1))
+        const endpoint = origin.clone().add(forward.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), spread).multiplyScalar(this.effectiveRange(proxy)))
+        this.createBeam(proxy, origin, endpoint, player, enemies, attackId)
+      }
+      return
+    }
+    if (['Wave', 'WideWave', 'MovingWall', 'FreezeWave'].includes(secondary)) {
+      this.createWave(proxy, origin, target.object.position, player, enemies, attackId)
+      return
+    }
+    if (secondary === 'Rain') {
+      this.createRain(proxy, origin, player, enemies, attackId)
+      return
+    }
+    this.launchProjectiles(proxy, origin, target, true, 1, attackId)
+  }
+
+  private createSecondaryDefinition(definition: SkillDefinition): SkillDefinition {
+    const secondary = definition.secondaryBehaviour!
+    const config = definition.secondaryConfig!
+    const behaviourGroups: Readonly<Record<string, SkillBehaviour>> = {
+      Burst: SkillBehaviour.BurstProjectile, DarkPulse: SkillBehaviour.BurstProjectile,
+      Flare: SkillBehaviour.BurstProjectile, Mark: SkillBehaviour.BurstProjectile,
+      Zone: SkillBehaviour.ZoneProjectile, MovingAura: SkillBehaviour.ZoneProjectile,
+      MovingZone: SkillBehaviour.ZoneProjectile, TrailZone: SkillBehaviour.ZoneProjectile,
+      FissureZone: SkillBehaviour.ZoneProjectile, BurnZone: SkillBehaviour.ZoneProjectile,
+      ExpandingZone: SkillBehaviour.ZoneProjectile, SpreadStatus: SkillBehaviour.ZoneProjectile,
+      Decoy: SkillBehaviour.ZoneProjectile,
+      Wave: SkillBehaviour.Wave, WideWave: SkillBehaviour.Wave, MovingWall: SkillBehaviour.Wave,
+      FreezeWave: SkillBehaviour.Wave,
+      Beam: SkillBehaviour.Beam, BeamPulse: SkillBehaviour.Beam,
+      BeamRefraction: SkillBehaviour.Beam, ChainArc: SkillBehaviour.Beam,
+      Rain: SkillBehaviour.Rain, Pull: SkillBehaviour.PullField,
+      Shard: SkillBehaviour.Split, Refraction: SkillBehaviour.Split,
+      Charge: SkillBehaviour.Homing, HomingProjectile: SkillBehaviour.Homing,
+      Summon: SkillBehaviour.Homing, Swarm: SkillBehaviour.Homing, DashClone: SkillBehaviour.Homing,
+      Pulse: SkillBehaviour.BurstProjectile,
+    }
+    return {
+      ...definition,
+      id: `${definition.id}:secondary:${secondary}`,
+      tier: 3,
+      behaviour: behaviourGroups[secondary] ?? SkillBehaviour.BurstProjectile,
+      primaryBehaviour: undefined,
+      secondaryBehaviour: undefined,
+      secondaryConfig: undefined,
+      count: Math.min(config.generationCap, Math.max(1, definition.count ?? 1)),
+      cooldown: config.cooldown,
+      visual: {
+        ...definition.visual,
+        color: definition.visual.accentColor ?? definition.visual.color,
+        accentColor: definition.visual.color,
+        scale: (definition.visual.scale ?? 0.25) * 1.2,
+      },
+      effects: definition.effects.map((effect) => ({
+        ...effect,
+        value: effect.type === EffectType.Damage || effect.type === EffectType.DamageOverTime || effect.type === EffectType.Burn || effect.type === EffectType.Poison
+          ? effect.value * config.damageScale
+          : effect.value,
+        duration: effect.duration === undefined ? undefined : effect.duration * (config.durationScale ?? 1),
+      })),
+      modifiers: definition.modifiers.map((modifier) => modifier.type === ModifierType.Radius
+        ? { ...modifier, value: modifier.value * (config.radiusScale ?? 1) }
+        : modifier),
     }
   }
 
@@ -242,12 +391,15 @@ export class SkillRuntime {
     if (behaviour === SkillBehaviour.BurstProjectile) {
       this.applyAreaEffects(definition, position, this.runtimeModifier(definition, ModifierType.Radius, 2), player, enemies, projectile.damageScale, projectile.attackId, true)
       this.createBurstVisual(definition, position)
+      this.emitPrimaryEvent(definition, 'OnPrimaryBurst', player, enemies, position, enemy)
     } else if (behaviour === SkillBehaviour.ZoneProjectile || behaviour === SkillBehaviour.PullField) {
       this.weapon.synergy.recordHit(projectile.attackId, enemy.object.uuid)
       this.createZone(definition, position, behaviour === SkillBehaviour.PullField)
     } else {
       this.applyEffects(definition, enemy, player, projectile.object.position, projectile.damageScale, projectile.attackId, true)
     }
+
+    this.emitPrimaryEvent(definition, 'OnPrimaryHit', player, enemies, position, enemy)
 
     if (behaviour === SkillBehaviour.Split && projectile.generation === 0) {
       this.launchSplitProjectiles(definition, position, enemy, projectile.damageScale * 0.55)
@@ -283,6 +435,14 @@ export class SkillRuntime {
       if (zone.pulseCooldown <= 0) {
         const scale = zone.object.scale.x
         this.applyAreaEffects(zone.definition, zone.object.position, this.runtimeModifier(zone.definition, ModifierType.Radius, 2) * scale, player, enemies, 1, this.nextAttackId())
+        this.emitPrimaryEvent(
+          zone.definition,
+          'OnPrimaryZoneTick',
+          player,
+          enemies,
+          zone.object.position.clone(),
+          this.findNearestTarget(zone.object.position, enemies, this.effectiveRange(zone.definition)),
+        )
         const baseTick = zone.followPlayer ? this.effectiveAttackInterval(zone.definition) : (zone.definition.cooldown ?? 0.5)
         zone.pulseCooldown += Math.max(0.05, this.runtimeTickRate(zone.definition, baseTick))
       }
@@ -310,13 +470,16 @@ export class SkillRuntime {
       if (orbit.pulseCooldown > 0) continue
       orbit.pulseCooldown += this.effectiveAttackInterval(orbit.definition)
       const attackId = this.nextAttackId()
+      let contactTarget: Enemy | undefined
       for (const enemy of enemies) {
         if (enemy.health.isDead) continue
         const hitRadius = enemy.radius + (orbit.definition.visual.scale ?? 0.25) * sizeMultiplier
         if (orbit.group.children.some((child) => child.getWorldPosition(new THREE.Vector3()).distanceToSquared(enemy.object.position) <= hitRadius ** 2)) {
           this.applyEffects(orbit.definition, enemy, player, player.object.position, 1, attackId)
+          contactTarget ??= enemy
         }
       }
+      if (contactTarget) this.emitPrimaryEvent(orbit.definition, 'OnPrimaryOrbitContact', player, enemies, player.object.position.clone(), contactTarget)
     }
   }
 
@@ -367,7 +530,8 @@ export class SkillRuntime {
     const weapon = this.weapon.stats
     const profile = this.profileFor(definition)
     const baseCount = definition.count ?? (definition.form === SkillForm.Spread ? 3 : 1)
-    const count = Math.min(8, Math.max(1, Math.round(baseCount * weapon.projectileCount * profile.projectileCountMultiplier)))
+    const weaponCount = this.inheritsWeaponStat(definition, 'pelletCount') ? weapon.projectileCount : 1
+    const count = Math.min(8, Math.max(1, Math.round(baseCount * weaponCount * profile.projectileCountMultiplier)))
     const base = target.object.position.clone().sub(origin).setY(0)
     if (base.lengthSq() <= 0.0001) return
     for (let index = 0; index < count; index += 1) {
@@ -381,7 +545,7 @@ export class SkillRuntime {
         generation: secondary ? 1 : 0,
         damageScale,
         projectileSpeed: this.runtimeProjectileSpeed(definition),
-        extraPierce: weapon.pierce,
+        extraPierce: this.inheritsWeaponStat(definition, 'pierce') ? weapon.pierce : 0,
         attackId,
         maxRange: this.effectiveRange(definition),
       })
@@ -399,7 +563,7 @@ export class SkillRuntime {
         generation: 1,
         damageScale,
         projectileSpeed: this.runtimeProjectileSpeed(definition),
-        extraPierce: this.weapon.stats.pierce,
+        extraPierce: this.inheritsWeaponStat(definition, 'pierce') ? this.weapon.stats.pierce : 0,
         attackId: this.nextAttackId(),
         maxRange: this.effectiveRange(definition),
       })
@@ -477,10 +641,14 @@ export class SkillRuntime {
     const range = this.effectiveRange(definition)
     const direction = target.clone().sub(origin).setY(0).normalize()
     this.applyCorridorEffects(definition, origin, direction, range, 0.55, player, enemies, attackId)
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, range), new THREE.MeshBasicMaterial({ color: definition.visual.color, transparent: true, opacity: 0.82 }))
+    const coupled = definition.id.includes(':secondary:')
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(coupled ? 0.46 : 0.28, coupled ? 0.26 : 0.18, range),
+      new THREE.MeshBasicMaterial({ color: definition.visual.color, transparent: true, opacity: coupled ? 1 : 0.82 }),
+    )
     mesh.position.copy(origin).addScaledVector(direction, range / 2).setY(0.65)
     mesh.rotation.y = Math.atan2(direction.x, direction.z)
-    this.addVisual(mesh, 0.22, false)
+    this.addVisual(mesh, coupled ? 0.38 : 0.22, false)
   }
 
   private createWave(definition: SkillDefinition, origin: THREE.Vector3, target: THREE.Vector3, player: Player, enemies: Enemy[], attackId: number): void {
@@ -554,7 +722,10 @@ export class SkillRuntime {
       extraKnockback: weaponImpact ? this.weapon.stats.knockback * this.weapon.synergy.getMultiplier(SynergyParameter.Knockback) : 0,
     })
     if (this.statusApplicationsByAttack.size > 128) this.statusApplicationsByAttack.clear()
-    if (defeated) this.handleDefeat(enemy, definition, player)
+    if (defeated) {
+      this.handleDefeat(enemy, definition, player)
+      this.emitPrimaryEvent(definition, 'OnPrimaryKill', player, this.currentEnemies, enemy.object.position.clone(), enemy)
+    }
   }
 
   private createBurstVisual(definition: SkillDefinition, position: THREE.Vector3): void {
@@ -612,22 +783,30 @@ export class SkillRuntime {
       : zoneBehaviours.includes(behaviour)
         ? EvolutionFamily.Zone
         : EvolutionFamily.Independent
-    return WEAPON_EVOLUTION_PROFILES[this.weapon.weaponType][family]
+    const weaponType = definition.attackMode === 'additive' ? 'BasicAttack' : this.weapon.weaponType
+    return WEAPON_EVOLUTION_PROFILES[weaponType][family]
   }
 
   private weaponDamageScale(definition: SkillDefinition): number {
+    if (!this.inheritsWeaponStat(definition, 'damage')) return 1
     return this.weapon.stats.damage / GAME_CONFIG.weapons.referenceDamage *
       this.profileFor(definition).damageMultiplier *
       this.weapon.synergy.getMultiplier(SynergyParameter.Damage)
   }
 
   private effectiveAttackInterval(definition: SkillDefinition): number {
+    if (!this.inheritsWeaponStat(definition, 'attackSpeed')) {
+      return Math.max(0.05, definition.cooldown ?? GAME_CONFIG.weapons.referenceAttackInterval)
+    }
     const evolutionRatio = (definition.cooldown ?? GAME_CONFIG.weapons.referenceAttackInterval) /
       GAME_CONFIG.weapons.referenceAttackInterval
     return Math.max(0.05, this.weapon.stats.attackInterval * evolutionRatio)
   }
 
   private effectiveRange(definition: SkillDefinition): number {
+    if (!this.inheritsWeaponStat(definition, 'range')) {
+      return definition.range ?? GAME_CONFIG.weapons.referenceRange
+    }
     const evolutionRatio = (definition.range ?? GAME_CONFIG.weapons.referenceRange) /
       GAME_CONFIG.weapons.referenceRange
     return this.weapon.stats.range * evolutionRatio
@@ -635,6 +814,7 @@ export class SkillRuntime {
 
   private runtimeProjectileSpeed(definition: SkillDefinition): number {
     const definitionSpeed = getModifierValue(definition, ModifierType.Speed, GAME_CONFIG.weapons.pistol.projectileSpeed)
+    if (!this.inheritsWeaponStat(definition, 'projectileSpeed')) return definitionSpeed
     return this.weapon.stats.projectileSpeed *
       definitionSpeed / GAME_CONFIG.weapons.pistol.projectileSpeed *
       this.weapon.synergy.getMultiplier(SynergyParameter.ProjectileSpeed)
@@ -660,6 +840,10 @@ export class SkillRuntime {
       return base * this.profileFor(definition).durationMultiplier * this.weapon.synergy.getMultiplier(SynergyParameter.Duration)
     }
     return base
+  }
+
+  private inheritsWeaponStat(definition: SkillDefinition, stat: keyof NonNullable<SkillDefinition['weaponStatInheritance']>): boolean {
+    return definition.weaponStatInheritance?.[stat] !== false
   }
 
   private nextAttackId(): number {

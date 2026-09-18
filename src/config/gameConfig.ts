@@ -107,6 +107,7 @@ export const GAME_CONFIG = {
   rounds: {
     firstRoundDuration: 30,
     normalRoundDuration: 60,
+    roundClearPauseSeconds: 1,
     plannedCount: 20,
     difficulty: {
       enemyHpPerRound: 0.08,
@@ -116,7 +117,7 @@ export const GAME_CONFIG = {
   },
   elements: {
     evolveKey: 'KeyE',
-    elementSpawnSchedule: { 2: 1, 5: 2, 9: 3 } as Readonly<Record<number, number>>,
+    elementSpawnSchedule: { 2: 1, 5: 2 } as Readonly<Record<number, number>>,
     elementEnemySpawnDelaySeconds: 20,
     evolutionTutorialDurationSeconds: 4,
     enemySizeMultiplier: 1.35,

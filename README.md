@@ -386,6 +386,8 @@ Examples:
 
 Technical Notes
 
+\- Implemented the complete Tier 3 special-evolution layer: 45 Tier 2 builds now map to 45 curated Tier 3 evolutions using reusable compound behaviours.
+
 \- All 45 Tier 2 skills remain data-driven through SkillDefinition.
 
 \- Weapon/evolution synergies are also data-driven rather than hard-coded as individual weapon-skill combinations.

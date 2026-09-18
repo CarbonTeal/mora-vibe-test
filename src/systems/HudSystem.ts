@@ -2,6 +2,7 @@ import type { Enemy } from '../entities/Enemy.ts'
 import type { Player } from '../entities/Player.ts'
 import type { Wallet } from '../economy/Wallet.ts'
 import type { RoundSystem } from '../rounds/RoundSystem.ts'
+import { GAME_CONFIG } from '../config/gameConfig.ts'
 
 export interface HudElements {
   health: HTMLElement
@@ -34,10 +35,11 @@ export class HudSystem {
     this.elements.level.textContent = `Level ${player.level}`
     this.elements.xp.textContent = `XP ${player.xp} / ${player.xpForNextLevel}`
     this.elements.enemies.textContent = `Enemies ${enemies.length}`
-    this.elements.round.textContent = `Round ${rounds.currentRound}`
+    this.elements.round.textContent = `ROUND ${rounds.currentRound} / ${GAME_CONFIG.rounds.plannedCount}`
     this.elements.state.textContent = rounds.state
-    this.elements.time.textContent = `${rounds.remainingTime.toFixed(1)}s`
-    this.elements.money.textContent = `Money ${wallet.money}`
+    const seconds = Math.max(0, Math.ceil(rounds.remainingTime))
+    this.elements.time.textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
+    this.elements.money.textContent = `$ ${wallet.money}`
     this.elements.skills.textContent = `Skills: ${skillNames.join(' · ')}`
     this.elements.gameOver.hidden = !player.health.isDead
   }

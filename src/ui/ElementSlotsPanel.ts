@@ -7,6 +7,7 @@ import type { ElementType } from '../elements/ElementType.ts'
 export interface ElementSlotsElements {
   root: HTMLElement
   current: HTMLElement
+  currentSpecial: HTMLElement
   pendingRoot: HTMLElement
   slot1: HTMLElement
   slot2: HTMLElement
@@ -44,28 +45,31 @@ export class ElementSlotsPanel {
     window.addEventListener('keydown', this.onKeyDown)
   }
 
-  render(state: BuildState): void {
+  render(state: BuildState, tier3Pending?: { element: ElementType; targetTier3Id: string }): void {
     const inventory = state.elements
     const first = inventory.pending1?.element
     const second = inventory.pending2?.element
     const pending = inventory.pendingElement?.element
     const specialAvailable = inventory.specialFusionAvailable
-    const elementPickupLocked = state.currentEvolution?.tier === 2
+    const elementPickupLocked = (state.currentEvolution?.tier ?? 0) >= 2
+    const shownFirst = tier3Pending?.element ?? first
 
     this.elements.current.textContent = state.currentEvolution?.glyph ?? '—'
-    this.elements.pendingRoot.hidden = !first || elementPickupLocked
-    this.elements.slot1.textContent = first ? ELEMENT_PRESENTATION[first].glyph : ''
-    this.elements.slot2.hidden = !second
-    this.elements.link.hidden = !second
+    this.elements.currentSpecial.textContent = state.currentEvolution?.specialName ?? ''
+    this.elements.currentSpecial.hidden = !state.currentEvolution?.specialName
+    this.elements.pendingRoot.hidden = !shownFirst || (elementPickupLocked && !tier3Pending)
+    this.elements.slot1.textContent = shownFirst ? ELEMENT_PRESENTATION[shownFirst].glyph : ''
+    this.elements.slot2.hidden = !second || Boolean(tier3Pending)
+    this.elements.link.hidden = !second || Boolean(tier3Pending)
     this.elements.slot2.textContent = second ? ELEMENT_PRESENTATION[second].glyph : ''
-    this.elements.slot1.style.setProperty('--element-color', first ? `#${ELEMENT_PRESENTATION[first].color.toString(16).padStart(6, '0')}` : '#75858a')
+    this.elements.slot1.style.setProperty('--element-color', shownFirst ? `#${ELEMENT_PRESENTATION[shownFirst].color.toString(16).padStart(6, '0')}` : '#75858a')
     this.elements.slot2.style.setProperty('--element-color', second ? `#${ELEMENT_PRESENTATION[second].color.toString(16).padStart(6, '0')}` : '#75858a')
     this.elements.root.classList.toggle('element-slots--rare', specialAvailable)
     this.elements.root.classList.toggle('element-slots--pending', Boolean(first) && !elementPickupLocked)
     this.elements.ready.hidden = !specialAvailable || elementPickupLocked
-    this.elements.evolveHint.hidden = !first || elementPickupLocked
-    this.elements.evolveHint.textContent = specialAvailable ? 'E · 特殊进化' : 'E · 进化'
-    this.elements.evolveButton.disabled = !first || Boolean(pending) || elementPickupLocked
+    this.elements.evolveHint.hidden = (!first || elementPickupLocked) && !tier3Pending
+    this.elements.evolveHint.textContent = tier3Pending ? 'E · 特殊进化' : specialAvailable ? 'E · 特殊进化' : 'E · 进化'
+    this.elements.evolveButton.disabled = tier3Pending ? false : !first || Boolean(pending) || elementPickupLocked
 
     this.elements.choiceRoot.hidden = !pending
     if (pending) {

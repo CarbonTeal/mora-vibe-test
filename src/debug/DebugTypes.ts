@@ -34,6 +34,9 @@ export interface DebugSnapshot {
   currentWeapon: WeaponType
   weaponStats: string
   evolutionBehaviour: string
+  evolutionAttackMode: string
+  weaponPrimaryFireEnabled: boolean
+  weaponStatInheritance: string
   activeSynergies: readonly string[]
   spawnedElements: readonly string[]
   ownedBuffs: readonly string[]
@@ -46,7 +49,7 @@ export interface DebugSnapshot {
   elementSpawnTriggered: boolean
   evolutionTutorialShown: boolean
   queuedElementCoreCount: number
-  evolutionTier: 0 | 1 | 2
+  evolutionTier: 0 | 1 | 2 | 3
   elementPickupLocked: boolean
   synergyPoolEnabled: boolean
   shopOfferSources: readonly string[]
@@ -55,6 +58,24 @@ export interface DebugSnapshot {
   purchasesSinceLastReroll: number
   elementCoreMode: 'Evolution' | 'MoneyConversion'
   tier2ElementCoreMoneyValue: number
+  tier3BaseTier2: string
+  tier3SpecialName: string
+  tier3PrimaryBehaviour: string
+  tier3SecondaryBehaviour: string
+  tier3CouplingTrigger: string
+  tier3RequiredElement: string
+  tier3Target: string
+  tier3Pending: string
+  roundSpecialType: string
+  bossAlive: boolean
+  bossHp: string
+  bossPhase: string
+  bossEnraged: boolean
+  bossKillRewardGranted: boolean
+  bossRoundRemainingTime: number
+  activeNormalEnemyCount: number
+  activeBossSummons: number
+  eliteCount: number
   roundStats: {
     enemiesSpawned: number
     enemiesKilled: number
@@ -105,9 +126,13 @@ export interface DebugActions {
   forceEvolution: (skillId: string) => void
   nextSkill: () => void
   previousSkill: () => void
+  nextTier3: () => void
+  previousTier3: () => void
+  giveTier3Core: () => void
   returnToStartScreen: () => void
   getSkillOptions: () => readonly DebugSkillOption[]
   getWeaponUpgradeOptions: () => readonly { id: string; name: string }[]
   getSynergyUpgradeOptions: () => readonly { id: string; name: string }[]
+  getAttackModeAudit: () => readonly string[]
   getSnapshot: () => DebugSnapshot
 }
