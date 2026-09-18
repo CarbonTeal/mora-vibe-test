@@ -4,9 +4,11 @@
 
 ## 在线游玩 / Play
 
-GitHub Pages 正在部署中；公开链接将在部署验证后补充。
+Play:
+https://carbonteal.github.io/mora-vibe-test/
 
-- GitHub：<https://github.com/CarbonTeal/mora-vibe-test>
+GitHub:
+https://github.com/CarbonTeal/mora-vibe-test
 
 ## 操作
 
