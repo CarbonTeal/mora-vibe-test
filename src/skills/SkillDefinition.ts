@@ -16,6 +16,7 @@ export type SecondaryBehaviour =
   | 'TrailZone' | 'FissureZone' | 'BurnZone' | 'ExpandingZone'
   | 'FreezeWave' | 'HomingProjectile' | 'Charge' | 'Summon' | 'Swarm'
   | 'Decoy' | 'Refraction' | 'Mark' | 'SpreadStatus' | 'Flare' | 'DashClone'
+  | 'Orbit' | 'DelayedEcho'
 
 export type Tier3CouplingTrigger =
   | 'OnPrimaryCast'
@@ -45,6 +46,27 @@ export interface Tier3SecondaryConfig {
   durationScale?: number
   maxActive: number
   generationCap: number
+}
+
+export type Tier4TriggerSource = 'Primary' | 'Tier3Secondary'
+
+export interface Tier4SignatureEffect {
+  behaviour: SecondaryBehaviour
+  count?: number
+  damageScale?: number
+  radiusScale?: number
+  durationScale?: number
+  impactEffects?: readonly Tier4SignatureEffect[]
+}
+
+export interface Tier4SignatureConfig {
+  triggerSource: Tier4TriggerSource
+  triggerEvent: Tier3CouplingTrigger
+  triggerThreshold: number
+  cooldown: number
+  activeObjectCap: number
+  generationCap: number
+  effects: readonly Tier4SignatureEffect[]
 }
 
 export interface EffectDefinition {
@@ -96,6 +118,9 @@ export interface SkillDefinition {
   primaryBehaviour?: SkillBehaviour
   secondaryBehaviour?: SecondaryBehaviour
   secondaryConfig?: Tier3SecondaryConfig
+  baseTier3Id?: string
+  tier4DisplayName?: string
+  tier4Signature?: Tier4SignatureConfig
   attackMode?: EvolutionAttackMode
   weaponStatInheritance?: WeaponStatInheritance
 }

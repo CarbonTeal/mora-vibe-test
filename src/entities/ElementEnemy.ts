@@ -8,11 +8,12 @@ import type { EnemyProjectileEmitter } from './EnemyArchetype.ts'
 export class ElementEnemy extends Enemy {
   readonly elementType: ElementType
   readonly tier3TargetId?: string
+  readonly tier4TargetId?: string
   private readonly aura: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>
   private readonly glyph: THREE.Sprite
   private elapsed = 0
 
-  constructor(position: THREE.Vector3, elementType: ElementType, hpMultiplier = 1, tier3TargetId?: string) {
+  constructor(position: THREE.Vector3, elementType: ElementType, hpMultiplier = 1, tier3TargetId?: string, tier4TargetId?: string) {
     super(position, hpMultiplier * GAME_CONFIG.elements.enemyHpMultiplier, {
       radiusMultiplier: GAME_CONFIG.elements.enemySizeMultiplier,
       persistent: true,
@@ -22,6 +23,7 @@ export class ElementEnemy extends Enemy {
     })
     this.elementType = elementType
     this.tier3TargetId = tier3TargetId
+    this.tier4TargetId = tier4TargetId
     const presentation = ELEMENT_PRESENTATION[elementType]
     this.object.name = `ElementEnemy:${elementType}`
     this.object.scale.setScalar(GAME_CONFIG.elements.enemySizeMultiplier)

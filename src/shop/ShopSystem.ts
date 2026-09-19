@@ -1,5 +1,6 @@
 import { GAME_CONFIG } from '../config/gameConfig.ts'
 import type { PlayerStats } from '../entities/PlayerStats.ts'
+import type { EvolutionTier } from '../elements/BuildState.ts'
 import type { Wallet } from '../economy/Wallet.ts'
 import type { WeaponRuntime } from '../combat/WeaponRuntime.ts'
 import { BuffRarity, type BuffDefinition, type BuffOffer, type BuffTag } from './BuffDefinition.ts'
@@ -22,7 +23,7 @@ export class ShopSystem {
   private readonly weapon: WeaponRuntime
   private readonly getEvolutionId: () => string
   private readonly getRound: () => number
-  private readonly getEvolutionTier: () => 0 | 1 | 2 | 3
+  private readonly getEvolutionTier: () => EvolutionTier
   private readonly listeners = new Set<ShopListener>()
 
   constructor(
@@ -32,7 +33,7 @@ export class ShopSystem {
     weapon: WeaponRuntime,
     getEvolutionId: () => string,
     getRound: () => number,
-    getEvolutionTier: () => 0 | 1 | 2 | 3,
+    getEvolutionTier: () => EvolutionTier,
   ) {
     this.catalog = catalog
     this.wallet = wallet

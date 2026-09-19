@@ -17,7 +17,7 @@ export class ElementCoreSystem {
     this.onPickup = onPickup
   }
 
-  spawn(element: ElementType, position: THREE.Vector3, options: { purpose?: 'normal' | 'tier3'; targetTier3Id?: string } = {}): ElementCore {
+  spawn(element: ElementType, position: THREE.Vector3, options: { purpose?: 'normal' | 'tier3' | 'tier4'; targetTier3Id?: string; targetTier4Id?: string } = {}): ElementCore {
     const core = new ElementCore(element, position, options)
     this.cores.push(core)
     this.scene.add(core.object)

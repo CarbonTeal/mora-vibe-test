@@ -7,8 +7,9 @@ export class ElementCore {
   readonly object = new THREE.Group()
   readonly elementType: ElementType
   readonly pickupRadius = GAME_CONFIG.elements.corePickupRadius
-  readonly purpose: 'normal' | 'tier3'
+  readonly purpose: 'normal' | 'tier3' | 'tier4'
   readonly targetTier3Id?: string
+  readonly targetTier4Id?: string
   private readonly core: THREE.Mesh<THREE.OctahedronGeometry, THREE.MeshStandardMaterial>
   private readonly ring: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>
   private readonly glyph: THREE.Sprite
@@ -16,10 +17,11 @@ export class ElementCore {
   private elapsed = 0
   private rejectedCooldown = 0
 
-  constructor(elementType: ElementType, position: THREE.Vector3, options: { purpose?: 'normal' | 'tier3'; targetTier3Id?: string } = {}) {
+  constructor(elementType: ElementType, position: THREE.Vector3, options: { purpose?: 'normal' | 'tier3' | 'tier4'; targetTier3Id?: string; targetTier4Id?: string } = {}) {
     this.elementType = elementType
     this.purpose = options.purpose ?? 'normal'
     this.targetTier3Id = options.targetTier3Id
+    this.targetTier4Id = options.targetTier4Id
     const presentation = ELEMENT_PRESENTATION[elementType]
     this.object.name = `ElementCore:${elementType}:${this.purpose}`
     this.object.position.copy(position)

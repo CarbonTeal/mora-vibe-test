@@ -22,7 +22,7 @@ export class DebugPanel {
         <button type="button" data-action="return-start">Return to Start Screen</button>
       </div>
       <div class="debug-panel__group">
-        <strong>FORCE EVOLUTION (6 T1 + 45 T2 + 45 T3)</strong>
+        <strong>FORCE EVOLUTION (6 T1 + 45 T2 + 45 T3 + 6 T4 POC)</strong>
         <select data-skill-select>
           ${skillOptions.map((skill) => `<option value="${skill.id}">T${skill.tier} · ${skill.name}</option>`).join('')}
         </select>
@@ -104,6 +104,7 @@ export class DebugPanel {
         <button type="button" data-action="element-delay-test">Force Element Spawn Delay test</button>
         <button type="button" data-action="force-round-9">Force Round9</button>
         <button type="button" data-action="give-tier3-core">Give Tier3 Evolution Core</button>
+        <button type="button" data-action="give-tier4-core">Give Tier4 Evolution Core</button>
       </div>
       <div class="debug-panel__group debug-panel__group--grid">
         ${[2, 5, 10, 12, 14, 16, 18, 20].map((round) => `<button type="button" data-force-round="${round}">Force Round ${round}</button>`).join('')}
@@ -187,6 +188,12 @@ export class DebugPanel {
         `Tier3 Required: ${state.tier3RequiredElement || 'None'}`,
         `Tier3 Target: ${state.tier3Target || 'None'}`,
         `Tier3 Pending: ${state.tier3Pending || 'None'}`,
+        `Tier4 Base: ${state.tier4BaseTier3 || 'None'}`,
+        `Tier4 Name: ${state.tier4DisplayName || 'None'}`,
+        `Tier4 Required: ${state.tier4RequiredElement || 'None'}`,
+        `Tier4 Target: ${state.tier4Target || 'None'}`,
+        `Tier4 Pending: ${state.tier4Pending || 'None'}`,
+        `Tier4 Signature: ${state.tier4Signature || 'None'}`,
         `Round Special: ${state.roundSpecialType}`,
         `Boss Alive: ${state.bossAlive ? 'YES' : 'NO'}`,
         `Boss HP: ${state.bossHp}`,
@@ -283,6 +290,7 @@ export class DebugPanel {
       case 'force-round-6': this.actions.forceRound(6); break
       case 'force-round-9': this.actions.forceRound(9); break
       case 'give-tier3-core': this.actions.giveTier3Core(); break
+      case 'give-tier4-core': this.actions.giveTier4Core(); break
       case 'refresh-shop': this.actions.refreshShop(); break
       case 'force-reroll': this.actions.forceReroll(); break
       case 'return-start': this.actions.returnToStartScreen(); break
