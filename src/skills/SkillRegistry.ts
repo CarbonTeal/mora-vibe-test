@@ -2,8 +2,9 @@ import { CORE_SKILL_DEFINITIONS, BASIC_PROJECTILE_SKILL } from './definitions/co
 import type { EvolutionAttackMode, SkillDefinition, WeaponStatInheritance } from './SkillDefinition.ts'
 import { EVOLUTION_SKILLS, TIER_1_SKILLS, TIER_2_SKILLS } from './definitions/evolutionSkills.ts'
 import { TIER_3_BY_BASE_TIER2, TIER_3_SKILLS } from './definitions/tier3Skills.ts'
+import { TIER_4_BY_BASE_TIER3, TIER_4_SKILLS } from './definitions/tier4Skills.ts'
 
-const evolutionDefinitions = [...EVOLUTION_SKILLS, ...TIER_3_SKILLS]
+const evolutionDefinitions = [...EVOLUTION_SKILLS, ...TIER_3_SKILLS, ...TIER_4_SKILLS]
 const allDefinitions = [...CORE_SKILL_DEFINITIONS, ...evolutionDefinitions]
 const registry = new Map(allDefinitions.map((definition) => [definition.id, definition]))
 
@@ -11,6 +12,7 @@ export const EVOLUTION_SKILL_DEFINITIONS = evolutionDefinitions
 export const TIER_1_EVOLUTION_SKILLS = TIER_1_SKILLS
 export const TIER_2_EVOLUTION_SKILLS = TIER_2_SKILLS
 export const TIER_3_EVOLUTION_SKILLS = TIER_3_SKILLS
+export const TIER_4_EVOLUTION_SKILLS = TIER_4_SKILLS
 
 export interface EvolutionAttackModeAuditRow {
   skillId: string
@@ -28,6 +30,10 @@ export function getSkillDefinition(id: string): SkillDefinition | undefined {
 
 export function getTier3ForBaseTier2(id: string): SkillDefinition | undefined {
   return TIER_3_BY_BASE_TIER2.get(getBaseTier2Id(id))
+}
+
+export function getTier4ForBaseTier3(id: string): SkillDefinition | undefined {
+  return TIER_4_BY_BASE_TIER3.get(id)
 }
 
 export function getBaseTier2Id(id: string): string {

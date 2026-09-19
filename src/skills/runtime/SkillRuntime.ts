@@ -3,7 +3,7 @@ import { GAME_CONFIG } from '../../config/gameConfig.ts'
 import type { Enemy } from '../../entities/Enemy.ts'
 import type { Player } from '../../entities/Player.ts'
 import { Projectile } from '../../entities/Projectile.ts'
-import type { SkillDefinition, Tier3CouplingTrigger } from '../SkillDefinition.ts'
+import type { SkillDefinition, Tier3CouplingTrigger, Tier4SignatureEffect, Tier4TriggerSource } from '../SkillDefinition.ts'
 import { EffectType, ModifierType, SkillBehaviour, SkillForm, SkillTrigger } from '../SkillEnums.ts'
 import { EffectResolver } from './EffectResolver.ts'
 import { getModifierValue } from './ModifierResolver.ts'
@@ -27,6 +27,7 @@ interface RuntimeOrbit {
   definition: SkillDefinition
   group: THREE.Group
   pulseCooldown: number
+  remaining?: number
 }
 
 interface RuntimeVisual {
@@ -59,6 +60,11 @@ export class SkillRuntime {
   private readonly secondaryCooldowns = new Map<string, number>()
   private readonly secondaryTriggerCounts = new Map<string, number>()
   private readonly secondaryProcCounts = new Map<string, number>()
+  private readonly tier4Cooldowns = new Map<string, number>()
+  private readonly tier4TriggerCounts = new Map<string, number>()
+  private readonly tier4ProcCounts = new Map<string, number>()
+  private readonly tier4ImpactEffects = new Map<string, readonly Tier4SignatureEffect[]>()
+  private readonly tier4ImpactProcessed = new Set<string>()
   private readonly deathBurstProcessed = new Set<string>()
   private readonly pendingSpecialDefeats = new Map<Enemy, SkillDefinition>()
   private currentEnemies: Enemy[] = []
@@ -81,7 +87,8 @@ export class SkillRuntime {
   get activeSkillNames(): string[] { return this.definitions.map((definition) => definition.name) }
   get debugObjectCounts(): string {
     const couplingProcs = [...this.secondaryProcCounts.values()].reduce((sum, count) => sum + count, 0)
-    return `P${this.projectiles.length} Z${this.zones.length} O${this.orbits.length} V${this.visuals.length} E${this.echoes.length} C${couplingProcs}`
+    const tier4Procs = [...this.tier4ProcCounts.values()].reduce((sum, count) => sum + count, 0)
+    return `P${this.projectiles.length} Z${this.zones.length} O${this.orbits.length} V${this.visuals.length} E${this.echoes.length} C${couplingProcs} T4${tier4Procs}`
   }
 
   unlockDefinition(definition: SkillDefinition): boolean {
@@ -179,6 +186,11 @@ export class SkillRuntime {
     this.secondaryCooldowns.clear()
     this.secondaryTriggerCounts.clear()
     this.secondaryProcCounts.clear()
+    this.tier4Cooldowns.clear()
+    this.tier4TriggerCounts.clear()
+    this.tier4ProcCounts.clear()
+    this.tier4ImpactEffects.clear()
+    this.tier4ImpactProcessed.clear()
     this.weapon.synergy.clearTransientState()
   }
 
@@ -225,6 +237,11 @@ export class SkillRuntime {
       if (next <= 0) this.secondaryCooldowns.delete(id)
       else this.secondaryCooldowns.set(id, next)
     }
+    for (const [id, remaining] of this.tier4Cooldowns) {
+      const next = remaining - delta
+      if (next <= 0) this.tier4Cooldowns.delete(id)
+      else this.tier4Cooldowns.set(id, next)
+    }
   }
 
   private emitPrimaryEvent(
@@ -236,23 +253,134 @@ export class SkillRuntime {
     preferredTarget?: Enemy,
   ): void {
     const config = definition.secondaryConfig
-    if (!definition.secondaryBehaviour || !config || config.couplingTrigger !== trigger) return
-    const count = (this.secondaryTriggerCounts.get(definition.id) ?? 0) + 1
+    let tier3Activated = false
+    if (definition.secondaryBehaviour && config?.couplingTrigger === trigger) {
+      const count = (this.secondaryTriggerCounts.get(definition.id) ?? 0) + 1
+      if (count < config.triggerThreshold) {
+        this.secondaryTriggerCounts.set(definition.id, count)
+      } else {
+        this.secondaryTriggerCounts.set(definition.id, 0)
+        const activeObjects = this.projectiles.length + this.zones.length + this.visuals.length + this.echoes.length
+        const target = preferredTarget && !preferredTarget.health.isDead
+          ? preferredTarget
+          : this.findNearestTarget(origin, enemies, this.effectiveRange(definition) * 1.35)
+        if (!this.secondaryCooldowns.has(definition.id) && activeObjects < config.maxActive + this.orbits.length && target) {
+          this.activateCoupledSecondary(definition, player, enemies, origin, target)
+          this.secondaryProcCounts.set(definition.id, (this.secondaryProcCounts.get(definition.id) ?? 0) + 1)
+          this.secondaryCooldowns.set(definition.id, config.cooldown)
+          tier3Activated = true
+        }
+      }
+    }
+    this.emitTier4Event(definition, 'Primary', trigger, player, enemies, origin, preferredTarget)
+    if (tier3Activated) this.emitTier4Event(definition, 'Tier3Secondary', trigger, player, enemies, origin, preferredTarget)
+  }
+
+  private emitTier4Event(
+    definition: SkillDefinition,
+    source: Tier4TriggerSource,
+    trigger: Tier3CouplingTrigger,
+    player: Player,
+    enemies: Enemy[],
+    origin: THREE.Vector3,
+    preferredTarget?: Enemy,
+  ): void {
+    const config = definition.tier4Signature
+    if (!config || config.triggerSource !== source || config.triggerEvent !== trigger) return
+    const key = `${definition.id}:${source}:${trigger}`
+    const count = (this.tier4TriggerCounts.get(key) ?? 0) + 1
     if (count < config.triggerThreshold) {
-      this.secondaryTriggerCounts.set(definition.id, count)
+      this.tier4TriggerCounts.set(key, count)
       return
     }
-    this.secondaryTriggerCounts.set(definition.id, 0)
-    if (this.secondaryCooldowns.has(definition.id)) return
-    const activeObjects = this.projectiles.length + this.zones.length + this.visuals.length + this.echoes.length
-    if (activeObjects >= config.maxActive + this.orbits.length) return
+    this.tier4TriggerCounts.set(key, 0)
+    if (this.tier4Cooldowns.has(definition.id) || this.countTier4Objects(definition.id) >= config.activeObjectCap) return
     const target = preferredTarget && !preferredTarget.health.isDead
       ? preferredTarget
-      : this.findNearestTarget(origin, enemies, this.effectiveRange(definition) * 1.35)
+      : this.findNearestTarget(origin, enemies, this.effectiveRange(definition) * 1.5)
     if (!target) return
-    this.activateCoupledSecondary(definition, player, enemies, origin, target)
-    this.secondaryProcCounts.set(definition.id, (this.secondaryProcCounts.get(definition.id) ?? 0) + 1)
-    this.secondaryCooldowns.set(definition.id, config.cooldown)
+    this.activateTier4Signature(definition, player, enemies, origin, target)
+    this.tier4ProcCounts.set(definition.id, (this.tier4ProcCounts.get(definition.id) ?? 0) + 1)
+    this.tier4Cooldowns.set(definition.id, config.cooldown)
+  }
+
+  private activateTier4Signature(
+    definition: SkillDefinition,
+    player: Player,
+    enemies: Enemy[],
+    origin: THREE.Vector3,
+    target: Enemy,
+  ): void {
+    const config = definition.tier4Signature
+    if (!config) return
+    let remainingGeneration = config.generationCap
+    for (const [index, configuredEffect] of config.effects.entries()) {
+      if (remainingGeneration <= 0 || this.countTier4Objects(definition.id) >= config.activeObjectCap) break
+      const requested = Math.max(1, configuredEffect.count ?? 1)
+      const count = Math.min(requested, remainingGeneration)
+      remainingGeneration -= count
+      this.activateTier4Effect(definition, { ...configuredEffect, count }, index, player, enemies, origin, target)
+    }
+  }
+
+  private activateTier4Effect(
+    owner: SkillDefinition,
+    effect: Tier4SignatureEffect,
+    index: number,
+    player: Player,
+    enemies: Enemy[],
+    origin: THREE.Vector3,
+    target: Enemy,
+  ): void {
+    const proxy = this.createTier4EffectDefinition(owner, effect, index)
+    const attackId = this.nextAttackId()
+    const behaviour = effect.behaviour
+    if (['Zone', 'MovingAura', 'MovingZone', 'TrailZone', 'FissureZone', 'BurnZone', 'Decoy', 'SpreadStatus'].includes(behaviour)) {
+      this.createZone(proxy, origin, false)
+      this.createBurstVisual(proxy, origin)
+      return
+    }
+    if (behaviour === 'ExpandingZone') {
+      this.createZone(proxy, origin, true)
+      this.createBurstVisual(proxy, origin)
+      return
+    }
+    if (behaviour === 'Orbit') {
+      this.createOrbit(proxy, this.runtimeModifier(proxy, ModifierType.Duration, 3))
+      this.createBurstVisual(proxy, origin)
+      return
+    }
+    if (behaviour === 'DelayedEcho') {
+      const count = Math.max(1, effect.count ?? 1)
+      for (let echoIndex = 0; echoIndex < count; echoIndex += 1) {
+        this.echoes.push({ definition: proxy, remaining: 0.22 + echoIndex * 0.12, target, origin: origin.clone() })
+      }
+      return
+    }
+    if (['Burst', 'Pulse', 'DarkPulse'].includes(behaviour)) {
+      this.applyAreaEffects(proxy, origin, this.runtimeModifier(proxy, ModifierType.Radius, 3), player, enemies, 1, attackId)
+      this.createBurstVisual(proxy, origin)
+      return
+    }
+    if (['Beam', 'BeamPulse', 'BeamRefraction', 'ChainArc', 'Flare'].includes(behaviour)) {
+      const count = Math.max(1, Math.min(5, effect.count ?? 1))
+      const forward = target.object.position.clone().sub(origin).setY(0).normalize()
+      for (let beamIndex = 0; beamIndex < count; beamIndex += 1) {
+        const spread = count === 1 ? 0 : THREE.MathUtils.lerp(-0.55, 0.55, beamIndex / (count - 1))
+        const endpoint = origin.clone().add(forward.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), spread).multiplyScalar(this.effectiveRange(proxy)))
+        this.createBeam(proxy, origin, endpoint, player, enemies, attackId)
+      }
+      return
+    }
+    if (['Wave', 'WideWave', 'MovingWall', 'FreezeWave'].includes(behaviour)) {
+      this.createWave(proxy, origin, target.object.position, player, enemies, attackId)
+      return
+    }
+    if (behaviour === 'Rain') {
+      this.createRain(proxy, target.object.position, player, enemies, attackId)
+      return
+    }
+    this.launchProjectiles(proxy, origin, target, true, 1, attackId)
   }
 
   private activateCoupledSecondary(
@@ -300,29 +428,11 @@ export class SkillRuntime {
   private createSecondaryDefinition(definition: SkillDefinition): SkillDefinition {
     const secondary = definition.secondaryBehaviour!
     const config = definition.secondaryConfig!
-    const behaviourGroups: Readonly<Record<string, SkillBehaviour>> = {
-      Burst: SkillBehaviour.BurstProjectile, DarkPulse: SkillBehaviour.BurstProjectile,
-      Flare: SkillBehaviour.BurstProjectile, Mark: SkillBehaviour.BurstProjectile,
-      Zone: SkillBehaviour.ZoneProjectile, MovingAura: SkillBehaviour.ZoneProjectile,
-      MovingZone: SkillBehaviour.ZoneProjectile, TrailZone: SkillBehaviour.ZoneProjectile,
-      FissureZone: SkillBehaviour.ZoneProjectile, BurnZone: SkillBehaviour.ZoneProjectile,
-      ExpandingZone: SkillBehaviour.ZoneProjectile, SpreadStatus: SkillBehaviour.ZoneProjectile,
-      Decoy: SkillBehaviour.ZoneProjectile,
-      Wave: SkillBehaviour.Wave, WideWave: SkillBehaviour.Wave, MovingWall: SkillBehaviour.Wave,
-      FreezeWave: SkillBehaviour.Wave,
-      Beam: SkillBehaviour.Beam, BeamPulse: SkillBehaviour.Beam,
-      BeamRefraction: SkillBehaviour.Beam, ChainArc: SkillBehaviour.Beam,
-      Rain: SkillBehaviour.Rain, Pull: SkillBehaviour.PullField,
-      Shard: SkillBehaviour.Split, Refraction: SkillBehaviour.Split,
-      Charge: SkillBehaviour.Homing, HomingProjectile: SkillBehaviour.Homing,
-      Summon: SkillBehaviour.Homing, Swarm: SkillBehaviour.Homing, DashClone: SkillBehaviour.Homing,
-      Pulse: SkillBehaviour.BurstProjectile,
-    }
     return {
       ...definition,
       id: `${definition.id}:secondary:${secondary}`,
       tier: 3,
-      behaviour: behaviourGroups[secondary] ?? SkillBehaviour.BurstProjectile,
+      behaviour: this.secondaryBehaviourOf(secondary),
       primaryBehaviour: undefined,
       secondaryBehaviour: undefined,
       secondaryConfig: undefined,
@@ -345,6 +455,70 @@ export class SkillRuntime {
         ? { ...modifier, value: modifier.value * (config.radiusScale ?? 1) }
         : modifier),
     }
+  }
+
+  private createTier4EffectDefinition(
+    definition: SkillDefinition,
+    effect: Tier4SignatureEffect,
+    index: number,
+  ): SkillDefinition {
+    const id = `${definition.id}:tier4:${index}:${effect.behaviour}`
+    if (effect.impactEffects?.length) this.tier4ImpactEffects.set(id, effect.impactEffects)
+    const radius = getModifierValue(definition, ModifierType.Radius, 2.5) * (effect.radiusScale ?? 1)
+    const duration = getModifierValue(definition, ModifierType.Duration, 3) * (effect.durationScale ?? 1)
+    const modifiers = definition.modifiers
+      .filter((modifier) => modifier.type !== ModifierType.Radius && modifier.type !== ModifierType.Duration)
+      .concat([
+        { type: ModifierType.Radius, value: radius },
+        { type: ModifierType.Duration, value: duration },
+      ])
+    return {
+      ...definition,
+      id,
+      tier: 4,
+      behaviour: this.secondaryBehaviourOf(effect.behaviour),
+      primaryBehaviour: undefined,
+      secondaryBehaviour: undefined,
+      secondaryConfig: undefined,
+      tier4Signature: undefined,
+      count: Math.max(1, effect.count ?? 1),
+      effects: definition.effects.map((sourceEffect) => ({
+        ...sourceEffect,
+        value: sourceEffect.type === EffectType.Damage || sourceEffect.type === EffectType.DamageOverTime || sourceEffect.type === EffectType.Burn || sourceEffect.type === EffectType.Poison
+          ? sourceEffect.value * (effect.damageScale ?? 0.3)
+          : sourceEffect.value,
+      })),
+      modifiers,
+      visual: {
+        ...definition.visual,
+        color: definition.visual.accentColor ?? definition.visual.color,
+        accentColor: definition.visual.color,
+        scale: (definition.visual.scale ?? 0.25) * 1.35,
+      },
+    }
+  }
+
+  private secondaryBehaviourOf(secondary: string): SkillBehaviour {
+    const behaviourGroups: Readonly<Record<string, SkillBehaviour>> = {
+      Burst: SkillBehaviour.BurstProjectile, DarkPulse: SkillBehaviour.BurstProjectile,
+      Flare: SkillBehaviour.BurstProjectile, Mark: SkillBehaviour.BurstProjectile,
+      Pulse: SkillBehaviour.BurstProjectile,
+      Zone: SkillBehaviour.ZoneProjectile, MovingAura: SkillBehaviour.ZoneProjectile,
+      MovingZone: SkillBehaviour.ZoneProjectile, TrailZone: SkillBehaviour.ZoneProjectile,
+      FissureZone: SkillBehaviour.ZoneProjectile, BurnZone: SkillBehaviour.ZoneProjectile,
+      ExpandingZone: SkillBehaviour.ZoneProjectile, SpreadStatus: SkillBehaviour.ZoneProjectile,
+      Decoy: SkillBehaviour.ZoneProjectile,
+      Wave: SkillBehaviour.Wave, WideWave: SkillBehaviour.Wave, MovingWall: SkillBehaviour.Wave,
+      FreezeWave: SkillBehaviour.Wave,
+      Beam: SkillBehaviour.Beam, BeamPulse: SkillBehaviour.Beam,
+      BeamRefraction: SkillBehaviour.Beam, ChainArc: SkillBehaviour.Beam,
+      Rain: SkillBehaviour.Rain, Pull: SkillBehaviour.PullField,
+      Shard: SkillBehaviour.Split, Refraction: SkillBehaviour.Split,
+      Charge: SkillBehaviour.Homing, HomingProjectile: SkillBehaviour.Homing,
+      Summon: SkillBehaviour.Homing, Swarm: SkillBehaviour.Homing, DashClone: SkillBehaviour.Homing,
+      Orbit: SkillBehaviour.Orbit, DelayedEcho: SkillBehaviour.DelayedEcho,
+    }
+    return behaviourGroups[secondary] ?? SkillBehaviour.BurstProjectile
   }
 
   private activate(definition: SkillDefinition, player: Player, enemies: Enemy[], target: Enemy): void {
@@ -400,6 +574,7 @@ export class SkillRuntime {
     }
 
     this.emitPrimaryEvent(definition, 'OnPrimaryHit', player, enemies, position, enemy)
+    this.activateTier4ImpactEffects(projectile, position, enemy, player, enemies)
 
     if (behaviour === SkillBehaviour.Split && projectile.generation === 0) {
       this.launchSplitProjectiles(definition, position, enemy, projectile.damageScale * 0.55)
@@ -420,6 +595,26 @@ export class SkillRuntime {
       return false
     }
     return true
+  }
+
+  private activateTier4ImpactEffects(
+    projectile: Projectile,
+    origin: THREE.Vector3,
+    target: Enemy,
+    player: Player,
+    enemies: Enemy[],
+  ): void {
+    const definition = projectile.definition
+    const impactEffects = this.tier4ImpactEffects.get(definition.id)
+    if (!impactEffects?.length || this.tier4ImpactProcessed.has(projectile.object.uuid)) return
+    const ownerId = definition.id.split(':tier4:')[0]
+    const owner = this.definitionMap.get(ownerId)
+    const cap = owner?.tier4Signature?.activeObjectCap
+    if (cap !== undefined && this.countTier4Objects(ownerId) >= cap) return
+    this.tier4ImpactProcessed.add(projectile.object.uuid)
+    impactEffects.forEach((effect, index) => {
+      this.activateTier4Effect(definition, effect, index + 100, player, enemies, origin, target)
+    })
   }
 
   private updateZones(delta: number, player: Player, enemies: Enemy[]): void {
@@ -454,7 +649,16 @@ export class SkillRuntime {
   }
 
   private updateOrbits(delta: number, player: Player, enemies: Enemy[]): void {
-    for (const orbit of this.orbits) {
+    for (let orbitIndex = this.orbits.length - 1; orbitIndex >= 0; orbitIndex -= 1) {
+      const orbit = this.orbits[orbitIndex]
+      if (orbit.remaining !== undefined) {
+        orbit.remaining -= delta
+        if (orbit.remaining <= 0) {
+          this.disposeObject(orbit.group)
+          this.orbits.splice(orbitIndex, 1)
+          continue
+        }
+      }
       orbit.group.position.copy(player.object.position)
       const orbitRadius = this.runtimeModifier(orbit.definition, ModifierType.Radius, 2.7)
       const sizeMultiplier = this.weapon.synergy.getMultiplier(SynergyParameter.Size)
@@ -603,6 +807,10 @@ export class SkillRuntime {
 
   private ensureOrbit(definition: SkillDefinition): void {
     if (this.orbits.some((orbit) => orbit.definition.id === definition.id)) return
+    this.createOrbit(definition)
+  }
+
+  private createOrbit(definition: SkillDefinition, remaining?: number): void {
     const group = new THREE.Group()
     const radius = this.runtimeModifier(definition, ModifierType.Radius, 2.7)
     const count = definition.count ?? 3
@@ -619,7 +827,7 @@ export class SkillRuntime {
     }
     group.name = `Orbit:${definition.id}`
     this.scene.add(group)
-    this.orbits.push({ definition, group, pulseCooldown: 0 })
+    this.orbits.push({ definition, group, pulseCooldown: 0, remaining })
   }
 
   private createCone(definition: SkillDefinition, origin: THREE.Vector3, target: THREE.Vector3, player: Player, enemies: Enemy[], attackId: number): void {
@@ -866,8 +1074,17 @@ export class SkillRuntime {
     return this.findNearestTarget(origin, enemies.filter((enemy) => !hitTargets.has(enemy.object.uuid)), range)
   }
 
+  private countTier4Objects(ownerId: string): number {
+    const prefix = `${ownerId}:tier4:`
+    return this.projectiles.filter((projectile) => projectile.definition.id.startsWith(prefix)).length +
+      this.zones.filter((zone) => zone.definition.id.startsWith(prefix)).length +
+      this.orbits.filter((orbit) => orbit.definition.id.startsWith(prefix)).length +
+      this.echoes.filter((echo) => echo.definition.id.startsWith(prefix)).length
+  }
+
   private removeProjectile(index: number): void {
     const projectile = this.projectiles[index]
+    this.tier4ImpactProcessed.delete(projectile.object.uuid)
     this.scene.remove(projectile.object)
     projectile.dispose()
     this.projectiles.splice(index, 1)

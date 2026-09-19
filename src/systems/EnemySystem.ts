@@ -55,10 +55,10 @@ export class EnemySystem {
     this.onEnemySpawned(enemy)
   }
 
-  spawnElementEnemy(element: ElementType, playerPosition: THREE.Vector3, tier3TargetId?: string): ElementEnemy {
+  spawnElementEnemy(element: ElementType, playerPosition: THREE.Vector3, tier3TargetId?: string, tier4TargetId?: string): ElementEnemy {
     const position = this.createSpawnPosition(playerPosition, GAME_CONFIG.elements.spawnDistance)
     const roundHpMultiplier = GAME_CONFIG.elements.enemyHpMultiplierByRound[this.currentRound] ?? 1
-    const enemy = new ElementEnemy(position, element, this.difficulty.enemyHpMultiplier * roundHpMultiplier, tier3TargetId)
+    const enemy = new ElementEnemy(position, element, this.difficulty.enemyHpMultiplier * roundHpMultiplier, tier3TargetId, tier4TargetId)
     this.enemies.push(enemy)
     this.scene.add(enemy.object)
     this.onEnemySpawned(enemy)

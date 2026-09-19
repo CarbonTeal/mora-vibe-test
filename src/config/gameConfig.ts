@@ -119,6 +119,7 @@ export const GAME_CONFIG = {
     evolveKey: 'KeyE',
     elementSpawnSchedule: { 2: 1, 5: 2 } as Readonly<Record<number, number>>,
     elementEnemySpawnDelaySeconds: 20,
+    tier4DestinySpawnDelaySeconds: 20,
     evolutionTutorialDurationSeconds: 4,
     enemySizeMultiplier: 1.35,
     enemyHpMultiplier: 8.3,

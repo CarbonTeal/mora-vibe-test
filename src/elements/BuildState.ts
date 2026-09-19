@@ -4,7 +4,7 @@ import type { ElementType } from './ElementType.ts'
 import type { SkillDefinition } from '../skills/SkillDefinition.ts'
 import { getSkillDefinition } from '../skills/SkillRegistry.ts'
 
-export type EvolutionTier = 0 | 1 | 2 | 3
+export type EvolutionTier = 0 | 1 | 2 | 3 | 4
 
 export interface EvolutionState {
   id: string
@@ -13,6 +13,7 @@ export interface EvolutionState {
   baseElement?: ElementType
   tier: EvolutionTier
   baseTier2Id?: string
+  baseTier3Id?: string
   specialName?: string
 }
 
@@ -39,8 +40,9 @@ export class BuildState {
       name: event.displayName,
       glyph: event.displayGlyph,
       baseElement: event.recipeId.startsWith('single-') ? event.inputA : undefined,
-      tier: definition?.tier === 3 ? 3 : definition?.tier === 2 ? 2 : 1,
+      tier: definition?.tier === 4 ? 4 : definition?.tier === 3 ? 3 : definition?.tier === 2 ? 2 : 1,
       baseTier2Id: definition?.baseTier2Id,
+      baseTier3Id: definition?.baseTier3Id,
       specialName: definition?.specialName,
     }
   }
@@ -55,8 +57,9 @@ export class BuildState {
       baseElement: definition.id.startsWith('element-')
         ? definition.id.slice('element-'.length).replace(/^./, (letter) => letter.toUpperCase()) as ElementType
         : undefined,
-      tier: definition.tier === 3 ? 3 : definition.tier === 2 ? 2 : 1,
+      tier: definition.tier === 4 ? 4 : definition.tier === 3 ? 3 : definition.tier === 2 ? 2 : 1,
       baseTier2Id: definition.baseTier2Id,
+      baseTier3Id: definition.baseTier3Id,
       specialName: definition.specialName,
     }
   }

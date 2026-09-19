@@ -49,7 +49,7 @@ export interface DebugSnapshot {
   elementSpawnTriggered: boolean
   evolutionTutorialShown: boolean
   queuedElementCoreCount: number
-  evolutionTier: 0 | 1 | 2 | 3
+  evolutionTier: 0 | 1 | 2 | 3 | 4
   elementPickupLocked: boolean
   synergyPoolEnabled: boolean
   shopOfferSources: readonly string[]
@@ -66,6 +66,12 @@ export interface DebugSnapshot {
   tier3RequiredElement: string
   tier3Target: string
   tier3Pending: string
+  tier4BaseTier3: string
+  tier4DisplayName: string
+  tier4RequiredElement: string
+  tier4Target: string
+  tier4Pending: string
+  tier4Signature: string
   roundSpecialType: string
   bossAlive: boolean
   bossHp: string
@@ -129,6 +135,7 @@ export interface DebugActions {
   nextTier3: () => void
   previousTier3: () => void
   giveTier3Core: () => void
+  giveTier4Core: () => void
   returnToStartScreen: () => void
   getSkillOptions: () => readonly DebugSkillOption[]
   getWeaponUpgradeOptions: () => readonly { id: string; name: string }[]

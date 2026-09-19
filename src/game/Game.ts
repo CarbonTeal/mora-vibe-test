@@ -13,7 +13,7 @@ import { FusionEventBus } from '../fusion/FusionEventBus.ts'
 import { FusionResolver } from '../fusion/FusionResolver.ts'
 import { FUSION_RECIPES } from '../fusion/fusionRecipes.ts'
 import { GameState, RoundSystem } from '../rounds/RoundSystem.ts'
-import { EVOLUTION_SKILL_DEFINITIONS, TIER_3_EVOLUTION_SKILLS, getBaseTier2Id, getEvolutionAttackModeAudit, getSkillDefinition, getTier3ForBaseTier2, resolveDebugSkillLoadout } from '../skills/SkillRegistry.ts'
+import { EVOLUTION_SKILL_DEFINITIONS, TIER_3_EVOLUTION_SKILLS, getBaseTier2Id, getEvolutionAttackModeAudit, getSkillDefinition, getTier3ForBaseTier2, getTier4ForBaseTier3, resolveDebugSkillLoadout } from '../skills/SkillRegistry.ts'
 import type { SkillDefinition } from '../skills/SkillDefinition.ts'
 import { SkillRuntime } from '../skills/runtime/SkillRuntime.ts'
 import { SHOP_ITEM_DEFINITIONS } from '../shop/shopItems.ts'
@@ -111,6 +111,9 @@ export class Game {
       )
     })
     this.elementCoreSystem = new ElementCoreSystem(this.scene, (core) => {
+      if (core.purpose === 'tier4' && core.targetTier4Id) {
+        return this.build.setTier4Pending(core.elementType, core.targetTier4Id)
+      }
       if (core.purpose === 'tier3' && core.targetTier3Id) {
         return this.build.setTier3Pending(core.elementType, core.targetTier3Id)
       }
@@ -166,7 +169,7 @@ export class Game {
         this.weaponRuntime.setEvolution(getBaseTier2Id(definition.id))
       }
       const evolved = getSkillDefinition(event.resultSkillId)
-      this.player.setEvolutionColor(evolved?.tier === 3 ? evolved.visual.color : ELEMENT_PRESENTATION[event.inputA].color)
+      this.player.setEvolutionColor((evolved?.tier ?? 0) >= 3 ? evolved?.visual.color : ELEMENT_PRESENTATION[event.inputA].color)
     })
     this.unsubscribeRound = this.rounds.subscribe(this.onRoundStateChanged)
     this.timer.connect(document)
@@ -236,6 +239,8 @@ export class Game {
       triggerScheduledElementSpawn: () => {
         if (this.rounds.currentRound === 9) {
           this.elementEnemyDirector.spawnTier3Destiny(this.build.state.currentEvolution?.id ?? '', this.player.object.position)
+        } else if (this.rounds.currentRound === 14) {
+          this.elementEnemyDirector.spawnTier4Destiny(this.build.state.currentEvolution?.id ?? '', this.player.object.position)
         } else {
           this.elementEnemyDirector.triggerScheduledSpawn(this.rounds.currentRound, this.player.object.position)
         }
@@ -266,6 +271,10 @@ export class Game {
       giveTier3Core: () => {
         const target = getTier3ForBaseTier2(this.build.state.currentEvolution?.id ?? '')
         if (target?.requiredElement) this.elementCoreSystem.spawn(target.requiredElement, this.player.object.position, { purpose: 'tier3', targetTier3Id: target.id })
+      },
+      giveTier4Core: () => {
+        const target = getTier4ForBaseTier3(this.build.state.currentEvolution?.id ?? '')
+        if (target?.requiredElement) this.elementCoreSystem.spawn(target.requiredElement, this.player.object.position, { purpose: 'tier4', targetTier4Id: target.id })
       },
       getSkillOptions: () => EVOLUTION_SKILL_DEFINITIONS.map(({ id, name, tier }) => ({ id, name, tier })),
       getWeaponUpgradeOptions: () => WEAPON_UPGRADES.map(({ id, name, weaponType }) => ({ id, name: `${weaponType} · ${name}` })),
@@ -351,7 +360,7 @@ export class Game {
 
     this.updateCamera(delta)
     this.updateHud()
-    this.elementSlotsPanel.render(this.build.state, this.build.tier3Pending)
+    this.elementSlotsPanel.render(this.build.state, this.build.tier3Pending, this.build.tier4Pending)
     this.renderer.render(this.scene, this.camera)
     this.animationFrame = requestAnimationFrame(this.tick)
   }
@@ -492,6 +501,14 @@ export class Game {
       tier3RequiredElement: getSkillDefinition(this.build.state.currentEvolution?.id ?? '')?.requiredElement ?? '',
       tier3Target: this.elementEnemyDirector.targetTier3Id ?? '',
       tier3Pending: this.build.tier3Pending?.element ?? '',
+      tier4BaseTier3: currentDefinition?.baseTier3Id ?? '',
+      tier4DisplayName: currentDefinition?.tier4DisplayName ?? '',
+      tier4RequiredElement: currentDefinition?.tier === 4 ? currentDefinition.requiredElement ?? '' : '',
+      tier4Target: this.elementEnemyDirector.targetTier4Id ?? '',
+      tier4Pending: this.build.tier4Pending?.element ?? '',
+      tier4Signature: currentDefinition?.tier4Signature
+        ? `${currentDefinition.tier4Signature.triggerSource}.${currentDefinition.tier4Signature.triggerEvent} → ${currentDefinition.tier4Signature.effects.map((effect) => effect.behaviour).join(' + ')}`
+        : '',
       roundSpecialType: this.rounds.specialType,
       bossAlive: this.bossController.isAlive,
       bossHp: this.bossController.hp,
@@ -587,9 +604,11 @@ export class Game {
         this.roundStats.recordMoneySpawned(enemy.moneyReward)
       }
       if (enemy instanceof ElementEnemy) {
-        this.elementCoreSystem.spawn(enemy.elementType, enemy.object.position, enemy.tier3TargetId
-          ? { purpose: 'tier3', targetTier3Id: enemy.tier3TargetId }
-          : undefined)
+        this.elementCoreSystem.spawn(enemy.elementType, enemy.object.position, enemy.tier4TargetId
+          ? { purpose: 'tier4', targetTier4Id: enemy.tier4TargetId }
+          : enemy.tier3TargetId
+            ? { purpose: 'tier3', targetTier3Id: enemy.tier3TargetId }
+            : undefined)
       }
     }
   }

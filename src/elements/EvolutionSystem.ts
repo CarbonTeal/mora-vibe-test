@@ -21,8 +21,26 @@ export class EvolutionSystem {
   }
 
   evolve(): FusionCreatedEvent | undefined {
+    const tier4Pending = this.build.tier4Pending
     const tier3Pending = this.build.tier3Pending
     const current = this.build.state.currentEvolution
+    if (tier4Pending && current?.tier === 3) {
+      const definition = getSkillDefinition(tier4Pending.targetTier4Id)
+      if (!definition || definition.tier !== 4 || definition.baseTier3Id !== current.id) return undefined
+      this.build.consumeTier4Pending()
+      const event: FusionCreatedEvent = {
+        recipeId: `tier4-${current.id}-${tier4Pending.element}`,
+        inputA: tier4Pending.element,
+        inputB: tier4Pending.element,
+        mode: FusionMode.Sequential,
+        resultSkillId: definition.id,
+        displayName: definition.tier4DisplayName ?? definition.name,
+        displayGlyph: current.glyph,
+        sourceLabel: `${current.glyph} + ${ELEMENT_PRESENTATION[tier4Pending.element].glyph}`,
+      }
+      this.events.emit(event)
+      return event
+    }
     if (tier3Pending && current?.tier === 2) {
       const definition = getSkillDefinition(tier3Pending.targetTier3Id)
       if (!definition || definition.tier !== 3 || definition.baseTier2Id !== current.id) return undefined
